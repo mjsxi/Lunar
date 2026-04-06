@@ -3,6 +3,8 @@ import SwiftUI
 
 struct MarkdownTextView: NSViewRepresentable {
     let markdown: String
+    var fontSize: CGFloat = 14
+    var textColor: NSColor = .labelColor
 
     func makeNSView(context: Context) -> MarkdownNSTextView {
         let textView = MarkdownNSTextView()
@@ -19,18 +21,17 @@ struct MarkdownTextView: NSViewRepresentable {
     }
 
     func updateNSView(_ textView: MarkdownNSTextView, context: Context) {
-        textView.textStorage?.setAttributedString(Self.renderMarkdown(markdown))
+        textView.textStorage?.setAttributedString(Self.renderMarkdown(markdown, fontSize: fontSize, textColor: textColor))
         textView.invalidateIntrinsicContentSize()
     }
 
     // MARK: - Markdown Parsing
 
-    static func renderMarkdown(_ text: String) -> NSAttributedString {
-        let baseFont = NSFont.systemFont(ofSize: 14)
-        let boldFont = NSFont.boldSystemFont(ofSize: 14)
+    static func renderMarkdown(_ text: String, fontSize: CGFloat = 14, textColor: NSColor = .labelColor) -> NSAttributedString {
+        let baseFont = NSFont.systemFont(ofSize: fontSize)
+        let boldFont = NSFont.boldSystemFont(ofSize: fontSize)
         let italicFont = NSFontManager.shared.convert(baseFont, toHaveTrait: .italicFontMask)
-        let monoFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        let textColor = NSColor.labelColor
+        let monoFont = NSFont.monospacedSystemFont(ofSize: fontSize - 1, weight: .regular)
 
         let bodyStyle = NSMutableParagraphStyle()
         bodyStyle.lineSpacing = 3.5
@@ -55,13 +56,13 @@ struct MarkdownTextView: NSViewRepresentable {
 
             // Headers
             if trimmed.hasPrefix("### ") {
-                let font = NSFont.boldSystemFont(ofSize: 15)
+                let font = NSFont.boldSystemFont(ofSize: fontSize + 1)
                 append(to: result, text: String(trimmed.dropFirst(4)), font: font, color: textColor, style: bodyStyle, boldFont: font, italicFont: italicFont, monoFont: monoFont)
             } else if trimmed.hasPrefix("## ") {
-                let font = NSFont.boldSystemFont(ofSize: 16)
+                let font = NSFont.boldSystemFont(ofSize: fontSize + 2)
                 append(to: result, text: String(trimmed.dropFirst(3)), font: font, color: textColor, style: bodyStyle, boldFont: font, italicFont: italicFont, monoFont: monoFont)
             } else if trimmed.hasPrefix("# ") {
-                let font = NSFont.boldSystemFont(ofSize: 18)
+                let font = NSFont.boldSystemFont(ofSize: fontSize + 4)
                 append(to: result, text: String(trimmed.dropFirst(2)), font: font, color: textColor, style: bodyStyle, boldFont: font, italicFont: italicFont, monoFont: monoFont)
             }
             // Bullets
@@ -74,7 +75,7 @@ struct MarkdownTextView: NSViewRepresentable {
                 let tabStop = NSTextTab(textAlignment: .left, location: 20)
                 listStyle.tabStops = [tabStop]
                 let attrs: [NSAttributedString.Key: Any] = [.font: baseFont, .foregroundColor: textColor, .paragraphStyle: listStyle]
-                let bulletAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 18), .foregroundColor: textColor, .paragraphStyle: listStyle]
+                let bulletAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: fontSize + 4), .foregroundColor: textColor, .paragraphStyle: listStyle]
                 result.append(NSAttributedString(string: "\u{2022}", attributes: bulletAttrs))
                 result.append(NSAttributedString(string: "\t", attributes: attrs))
                 append(to: result, text: String(trimmed.dropFirst(2)), font: baseFont, color: textColor, style: listStyle, boldFont: boldFont, italicFont: italicFont, monoFont: monoFont)

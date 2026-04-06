@@ -184,6 +184,11 @@ struct ModelSettingsView: View {
 
     private var generationSection: some View {
         Section("Generation") {
+            Toggle("Enable Thinking", isOn: $settings.enableThinking)
+            Text("When enabled, models that support thinking (e.g. QwQ, DeepSeek-R1) will show their reasoning process in a collapsible block.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             HStack {
                 Text("Max Tokens")
                 Spacer()

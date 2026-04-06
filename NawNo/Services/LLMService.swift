@@ -17,6 +17,91 @@ struct GenerationStats: Equatable {
     var formattedTotal: String { String(format: "%.2fs", totalTime) }
 }
 
+struct GenerationResult {
+    let response: String
+    let thinking: String?
+    let stats: GenerationStats?
+}
+
+/// Incrementally parses `<think>...</think>` blocks from a streaming text buffer.
+/// Handles the case where the tokenizer strips `<think>` as a special token —
+/// if `</think>` appears without a prior `<think>`, everything before it is thinking.
+struct ThinkingParser {
+    private(set) var thinking = ""
+    private(set) var response = ""
+    private var inThinking = true  // assume thinking until we see </think> or know otherwise
+    private var sawThinkEnd = false
+    private var sawThinkStart = false
+    private var buffer = ""
+
+    mutating func append(_ text: String) {
+        buffer += text
+
+        while !buffer.isEmpty {
+            if inThinking {
+                if let endRange = buffer.range(of: "</think>") {
+                    thinking += buffer[buffer.startIndex..<endRange.lowerBound]
+                    buffer = String(buffer[endRange.upperBound...])
+                    inThinking = false
+                    sawThinkEnd = true
+                } else if !sawThinkStart && !sawThinkEnd {
+                    // Haven't seen <think> or </think> yet — check for <think> start tag
+                    if let startRange = buffer.range(of: "<think>") {
+                        // Had some text before <think>, move it to response
+                        let before = String(buffer[buffer.startIndex..<startRange.lowerBound])
+                        if !before.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            response += before
+                            inThinking = true
+                        }
+                        buffer = String(buffer[startRange.upperBound...])
+                        sawThinkStart = true
+                        continue
+                    }
+                    // Check for partial </think> at end of buffer
+                    let partial = partialSuffix(of: buffer, matching: "</think>")
+                    let partialStart = partialSuffix(of: buffer, matching: "<think>")
+                    let maxPartial = max(partial, partialStart)
+                    if maxPartial > 0 {
+                        thinking += buffer.dropLast(maxPartial)
+                        buffer = String(buffer.suffix(maxPartial))
+                    } else {
+                        thinking += buffer
+                        buffer = ""
+                    }
+                    break
+                } else {
+                    // Already saw <think>, waiting for </think>
+                    let partial = partialSuffix(of: buffer, matching: "</think>")
+                    if partial > 0 {
+                        thinking += buffer.dropLast(partial)
+                        buffer = String(buffer.suffix(partial))
+                    } else {
+                        thinking += buffer
+                        buffer = ""
+                    }
+                    break
+                }
+            } else {
+                // After </think>, everything is response
+                response += buffer
+                buffer = ""
+                break
+            }
+        }
+    }
+
+    /// Returns the length of the longest suffix of `text` that is a prefix of `tag`.
+    private func partialSuffix(of text: String, matching tag: String) -> Int {
+        let tagChars = Array(tag)
+        for len in stride(from: min(text.count, tagChars.count - 1), through: 1, by: -1) {
+            if text.hasSuffix(String(tagChars.prefix(len))) {
+                return len
+            }
+        }
+        return 0
+    }
+}
+
 private struct LocalTokenizerLoader: TokenizerLoader {
     func load(from directory: URL) async throws -> any MLXLMCommon.Tokenizer {
         let upstream = try await AutoTokenizer.from(modelFolder: directory)
@@ -65,11 +150,12 @@ final class LLMService {
     var statusText = ""
     var errorMessage: String?
     var currentStreamText = ""
+    var currentThinkingText = ""
     private(set) var activeBackend: BackendType?
 
     private var modelContainer: ModelContainer?
     private(set) var currentModelID: UUID?
-    private var generateTask: Task<(String, GenerationStats?), Never>?
+    private var generateTask: Task<GenerationResult, Never>?
     private let pythonService = PythonMLXService()
 
     // MARK: - Load
@@ -194,6 +280,7 @@ final class LLMService {
         isGenerating = false
         activeBackend = nil
         currentStreamText = ""
+        currentThinkingText = ""
         loadingProgress = 0
         statusText = ""
         errorMessage = nil
@@ -201,7 +288,7 @@ final class LLMService {
 
     // MARK: - Generate
 
-    func generate(messages: [[String: String]], settings: ModelSettings) async -> (String, GenerationStats?) {
+    func generate(messages: [[String: String]], settings: ModelSettings) async -> GenerationResult {
         switch activeBackend {
         case .swift:
             return await generateSwift(messages: messages, settings: settings)
@@ -210,7 +297,7 @@ final class LLMService {
             return await generatePython(messages: sanitized, settings: settings)
         default:
             errorMessage = "No model loaded"
-            return ("", nil)
+            return GenerationResult(response: "", thinking: nil, stats: nil)
         }
     }
 
@@ -236,22 +323,22 @@ final class LLMService {
         return result
     }
 
-    private func generateSwift(messages: [[String: String]], settings: ModelSettings) async -> (String, GenerationStats?) {
+    private func generateSwift(messages: [[String: String]], settings: ModelSettings) async -> GenerationResult {
         guard let container = modelContainer else {
             errorMessage = "No model loaded"
-            return ("", nil)
+            return GenerationResult(response: "", thinking: nil, stats: nil)
         }
 
         isGenerating = true
         currentStreamText = ""
+        currentThinkingText = ""
         errorMessage = nil
 
-        let task = Task { () -> (String, GenerationStats?) in
-            var fullText = ""
-            var stats: GenerationStats?
+        let task = Task { () -> GenerationResult in
+            var genResult = GenerationResult(response: "", thinking: nil, stats: nil)
 
             do {
-                let result: (String, GenerationStats?) = try await container.perform { context in
+                genResult = try await container.perform { context in
                     let input = try await context.processor.prepare(
                         input: .init(messages: messages)
                     )
@@ -271,7 +358,7 @@ final class LLMService {
                         context: context
                     )
 
-                    var generated = ""
+                    var parser = ThinkingParser()
                     var firstTokenTime: Date?
                     let startTime = Date()
                     var completionInfo: GenerateCompletionInfo?
@@ -283,11 +370,13 @@ final class LLMService {
                             if firstTokenTime == nil {
                                 firstTokenTime = Date()
                             }
-                            generated += text
-                            let snapshot = generated
+                            parser.append(text)
+                            let thinkSnap = parser.thinking
+                            let respSnap = parser.response
                             Task { @MainActor in
                                 withAnimation(.easeIn(duration: 0.15)) {
-                                    self.currentStreamText = snapshot
+                                    self.currentThinkingText = thinkSnap
+                                    self.currentStreamText = respSnap
                                 }
                             }
                         case .info(let info):
@@ -308,10 +397,9 @@ final class LLMService {
                         )
                     }
 
-                    return (generated, genStats)
+                    let thinking = parser.thinking.isEmpty ? nil : parser.thinking
+                    return GenerationResult(response: parser.response, thinking: thinking, stats: genStats)
                 }
-                fullText = result.0
-                stats = result.1
             } catch {
                 if !Task.isCancelled {
                     await MainActor.run {
@@ -320,7 +408,7 @@ final class LLMService {
                 }
             }
 
-            return (fullText, stats)
+            return genResult
         }
 
         generateTask = task
@@ -328,16 +416,18 @@ final class LLMService {
 
         isGenerating = false
         currentStreamText = ""
+        currentThinkingText = ""
         return result
     }
 
-    private func generatePython(messages: [[String: String]], settings: ModelSettings) async -> (String, GenerationStats?) {
+    private func generatePython(messages: [[String: String]], settings: ModelSettings) async -> GenerationResult {
         isGenerating = true
         currentStreamText = ""
+        currentThinkingText = ""
         errorMessage = nil
 
-        let task = Task { () -> (String, GenerationStats?) in
-            var fullText = ""
+        let task = Task { () -> GenerationResult in
+            var parser = ThinkingParser()
             var stats: GenerationStats?
 
             let startTime = Date()
@@ -353,11 +443,13 @@ final class LLMService {
                         if firstTokenTime == nil {
                             firstTokenTime = Date()
                         }
-                        fullText += text
-                        let snapshot = fullText
+                        parser.append(text)
+                        let thinkSnap = parser.thinking
+                        let respSnap = parser.response
                         Task { @MainActor in
                             withAnimation(.easeIn(duration: 0.15)) {
-                                self.currentStreamText = snapshot
+                                self.currentThinkingText = thinkSnap
+                                self.currentStreamText = respSnap
                             }
                         }
                     case .done(let promptTok, let completionTok):
@@ -380,7 +472,8 @@ final class LLMService {
                 }
             }
 
-            return (fullText, stats)
+            let thinking = parser.thinking.isEmpty ? nil : parser.thinking
+            return GenerationResult(response: parser.response, thinking: thinking, stats: stats)
         }
 
         generateTask = task
@@ -388,6 +481,7 @@ final class LLMService {
 
         isGenerating = false
         currentStreamText = ""
+        currentThinkingText = ""
         return result
     }
 
@@ -396,6 +490,7 @@ final class LLMService {
         generateTask = nil
         isGenerating = false
         currentStreamText = ""
+        currentThinkingText = ""
     }
 
 }

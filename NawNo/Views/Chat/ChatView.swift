@@ -4,10 +4,15 @@ struct ChatMessage: Identifiable, Equatable {
     let id = UUID()
     var role: Role
     var content: String
+    var thinkingContent: String?
     var stats: GenerationStats?
 
-    enum Role {
+    enum Role: Equatable {
         case user, assistant, system
+    }
+
+    static func == (lhs: ChatMessage, rhs: ChatMessage) -> Bool {
+        lhs.id == rhs.id && lhs.content == rhs.content && lhs.thinkingContent == rhs.thinkingContent
     }
 
     var asDict: [String: String] {
@@ -38,9 +43,17 @@ struct ChatView: View {
                                 .id(message.id)
                         }
 
-                        if llm.isGenerating && !llm.currentStreamText.isEmpty {
-                            MessageBubble(message: ChatMessage(role: .assistant, content: llm.currentStreamText))
-                                .id("streaming")
+                        if llm.isGenerating && (!llm.currentStreamText.isEmpty || !llm.currentThinkingText.isEmpty) {
+                            let thinkingEnabled = SettingsStorage.settings(for: model).enableThinking
+                            MessageBubble(
+                                message: ChatMessage(
+                                    role: .assistant,
+                                    content: llm.currentStreamText,
+                                    thinkingContent: thinkingEnabled && !llm.currentThinkingText.isEmpty ? llm.currentThinkingText : nil
+                                ),
+                                isStreaming: true
+                            )
+                            .id("streaming")
                         } else if llm.isGenerating {
                             HStack(spacing: 6) {
                                 ProgressView()
@@ -68,6 +81,9 @@ struct ChatView: View {
                     scrollToBottom(proxy)
                 }
                 .onChange(of: llm.currentStreamText) { _, _ in
+                    scrollToBottom(proxy)
+                }
+                .onChange(of: llm.currentThinkingText) { _, _ in
                     scrollToBottom(proxy)
                 }
             }
@@ -137,9 +153,15 @@ struct ChatView: View {
         }
 
         Task {
-            let (response, stats) = await llm.generate(messages: mlxMessages, settings: settings)
-            if !response.isEmpty {
-                messages.append(ChatMessage(role: .assistant, content: response.trimmingCharacters(in: .whitespacesAndNewlines), stats: stats))
+            let result = await llm.generate(messages: mlxMessages, settings: settings)
+            if !result.response.isEmpty || result.thinking != nil {
+                let thinking = settings.enableThinking ? result.thinking?.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+                messages.append(ChatMessage(
+                    role: .assistant,
+                    content: result.response.trimmingCharacters(in: .whitespacesAndNewlines),
+                    thinkingContent: thinking,
+                    stats: result.stats
+                ))
             }
         }
     }

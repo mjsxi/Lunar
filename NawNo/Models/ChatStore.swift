@@ -26,15 +26,17 @@ struct SavedMessage: Identifiable, Codable {
     let id: UUID
     var role: String // "user", "assistant", "system"
     var content: String
+    var thinkingContent: String?
     var tokensPerSecond: Double?
     var totalTokens: Int?
     var timeToFirstToken: Double?
     var totalTime: Double?
 
-    init(id: UUID = UUID(), role: String, content: String, stats: GenerationStats? = nil) {
+    init(id: UUID = UUID(), role: String, content: String, thinkingContent: String? = nil, stats: GenerationStats? = nil) {
         self.id = id
         self.role = role
         self.content = content
+        self.thinkingContent = thinkingContent
         self.tokensPerSecond = stats?.tokensPerSecond
         self.totalTokens = stats?.totalTokens
         self.timeToFirstToken = stats?.timeToFirstToken
@@ -60,7 +62,44 @@ struct SavedMessage: Identifiable, Codable {
             )
         }
 
-        return ChatMessage(role: messageRole, content: content, stats: stats)
+        // Migrate legacy messages that have <think> tags baked into content
+        var finalContent = content
+        var finalThinking = thinkingContent
+        if finalThinking == nil, content.contains("<think>") || content.contains("</think>") {
+            let (parsed, thinking) = Self.extractThinking(from: content)
+            finalContent = parsed
+            finalThinking = thinking
+        }
+
+        return ChatMessage(role: messageRole, content: finalContent, thinkingContent: finalThinking, stats: stats)
+    }
+
+    private static func extractThinking(from text: String) -> (content: String, thinking: String?) {
+        var thinking = ""
+        var content = text
+
+        // Case 1: Has <think>...</think>
+        while let startRange = content.range(of: "<think>") {
+            let before = String(content[content.startIndex..<startRange.lowerBound])
+            if let endRange = content.range(of: "</think>", range: startRange.upperBound..<content.endIndex) {
+                thinking += content[startRange.upperBound..<endRange.lowerBound]
+                content = before + String(content[endRange.upperBound...])
+            } else {
+                thinking += content[startRange.upperBound...]
+                content = before
+                break
+            }
+        }
+
+        // Case 2: Only </think> (tokenizer stripped <think> as special token)
+        if thinking.isEmpty, let endRange = content.range(of: "</think>") {
+            thinking = String(content[content.startIndex..<endRange.lowerBound])
+            content = String(content[endRange.upperBound...])
+        }
+
+        let trimmedThinking = thinking.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (trimmedContent, trimmedThinking.isEmpty ? nil : trimmedThinking)
     }
 }
 
@@ -108,6 +147,7 @@ final class ChatStore {
                 id: msg.id,
                 role: msg.role == .user ? "user" : msg.role == .assistant ? "assistant" : "system",
                 content: msg.content,
+                thinkingContent: msg.thinkingContent,
                 stats: msg.stats
             )
         }

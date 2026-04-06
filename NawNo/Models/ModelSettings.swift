@@ -17,6 +17,7 @@ struct ModelSettings: Codable, Equatable {
     var repetitionContextSize: Int
     var seed: UInt64?
     var backend: BackendType
+    var enableThinking: Bool
 
     static let defaults = ModelSettings(
         systemPrompt: "You are a helpful assistant.",
@@ -28,7 +29,8 @@ struct ModelSettings: Codable, Equatable {
         repetitionPenalty: 1.1,
         repetitionContextSize: 64,
         seed: nil,
-        backend: .auto
+        backend: .auto,
+        enableThinking: true
     )
 
     enum CodingKeys: String, CodingKey {
@@ -42,9 +44,10 @@ struct ModelSettings: Codable, Equatable {
         case repetitionContextSize = "repetition_context"
         case seed
         case backend
+        case enableThinking = "enable_thinking"
     }
 
-    init(systemPrompt: String, contextWindowSize: Int, temperature: Float, topK: Int, topP: Float, maxTokens: Int, repetitionPenalty: Float, repetitionContextSize: Int, seed: UInt64?, backend: BackendType = .auto) {
+    init(systemPrompt: String, contextWindowSize: Int, temperature: Float, topK: Int, topP: Float, maxTokens: Int, repetitionPenalty: Float, repetitionContextSize: Int, seed: UInt64?, backend: BackendType = .auto, enableThinking: Bool = true) {
         self.systemPrompt = systemPrompt
         self.contextWindowSize = contextWindowSize
         self.temperature = temperature
@@ -55,6 +58,7 @@ struct ModelSettings: Codable, Equatable {
         self.repetitionContextSize = repetitionContextSize
         self.seed = seed
         self.backend = backend
+        self.enableThinking = enableThinking
     }
 
     init(from decoder: Decoder) throws {
@@ -69,6 +73,7 @@ struct ModelSettings: Codable, Equatable {
         repetitionContextSize = try container.decode(Int.self, forKey: .repetitionContextSize)
         seed = try container.decodeIfPresent(UInt64.self, forKey: .seed)
         backend = try container.decodeIfPresent(BackendType.self, forKey: .backend) ?? .auto
+        enableThinking = try container.decodeIfPresent(Bool.self, forKey: .enableThinking) ?? true
     }
 
     var estimatedSystemPromptTokens: Int {
