@@ -37,7 +37,7 @@ Download the latest `.zip` from the [Releases](../../releases) page, unzip, and 
 
 ```bash
 # Clone the repo
-git clone https://github.com/YOUR_USERNAME/nawno.git
+git clone https://github.com/mjsxi/Nawno.git
 cd nawno
 
 # Generate the Xcode project
