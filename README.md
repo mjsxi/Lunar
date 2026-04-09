@@ -7,6 +7,10 @@ A native Apple app for running open-source large language models locally. Built 
 ![Swift 5.9](https://img.shields.io/badge/Swift-5.9-orange)
 ![License](https://img.shields.io/badge/license-GPLv3-blue)
 
+<p align="center">
+  <img src="img4git/lunar-app-img.jpg" alt="Lunar app screenshot" width="700">
+</p>
+
 ## Features
 
 - **Local inference** -- All models run on-device using Apple's MLX framework. Nothing leaves your device.

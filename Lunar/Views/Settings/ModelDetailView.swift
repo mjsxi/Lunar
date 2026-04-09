@@ -34,6 +34,9 @@ struct ModelDetailView: View {
                     }
                     .buttonStyle(.borderless)
                 }
+                if let gb = appManager.modelSizeGB(for: modelName) {
+                    LabeledContent("size", value: "\(formatModelSize(gb)) GB")
+                }
                 LabeledContent("repo", value: modelName)
                 if let url = appManager.huggingFaceURL(for: modelName) {
                     Button {
@@ -61,6 +64,13 @@ struct ModelDetailView: View {
                 ))
                 .textEditorStyle(.plain)
                 .frame(minHeight: 80)
+            }
+
+            Section(header: Text("reasoning"), footer: Text("enable to let the model think step-by-step using <think> tags. works with reasoning-capable models.")) {
+                Toggle("reasoning enabled", isOn: Binding(
+                    get: { appManager.isReasoningEnabled(for: modelName) },
+                    set: { appManager.setReasoningEnabled($0, for: modelName) }
+                ))
             }
 
             Section("model tweaks") {
@@ -181,6 +191,12 @@ struct ModelDetailView: View {
         let kvBytes = Double(tokens) * 2_048
         let kvGB = kvBytes / 1_073_741_824.0
         return weightsGB + kvGB
+    }
+
+    private func formatModelSize(_ gb: Double) -> String {
+        gb.truncatingRemainder(dividingBy: 1) == 0
+            ? String(format: "%.0f", gb)
+            : String(format: "%.2f", gb)
     }
 
     private func ramColor(ratio: Double) -> Color {

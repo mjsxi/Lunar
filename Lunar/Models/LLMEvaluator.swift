@@ -150,9 +150,10 @@ class LLMEvaluator {
             let modelContainer = try await load(modelName: modelName)
 
             // augment the prompt as needed
-            let promptHistory = await modelContainer.configuration.getPromptHistory(thread: thread, systemPrompt: systemPrompt)
+            let reasoningEnabled = readReasoningEnabled(for: modelName)
+            let promptHistory = await modelContainer.configuration.getPromptHistory(thread: thread, systemPrompt: systemPrompt, reasoningEnabled: reasoningEnabled)
 
-            if await modelContainer.configuration.modelType == .reasoning {
+            if reasoningEnabled {
                 isThinking = true
             }
 
@@ -312,6 +313,15 @@ class LLMEvaluator {
         return nil
     }
     #endif
+
+    private func readReasoningEnabled(for modelName: String) -> Bool {
+        if let data = UserDefaults.standard.data(forKey: "modelReasoningEnabled"),
+           let dict = try? JSONDecoder().decode([String: Bool].self, from: data),
+           let value = dict[modelName] {
+            return value
+        }
+        return SuggestedModelsCatalog.first(matching: modelName)?.isReasoning ?? false
+    }
 
     private func selectedBackend(for modelName: String) -> BackendKind {
         if let data = UserDefaults.standard.data(forKey: "modelBackends"),

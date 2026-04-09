@@ -50,7 +50,10 @@
       "Bash(echo 'NOT FOUND' echo echo '=== Wheel files ===' ls $APP/Contents/Resources/*.whl)",
       "Bash(APP=/Users/matt/Library/Developer/Xcode/DerivedData/NawNo-bbgvmrwztthkhnbdzcawnghifvli/Build/Products/Debug/NawNo.app echo '=== Check python-bundle ===' ls -la $APP/Contents/Resources/python-bundle/)",
       "Bash(echo 'NOT FOUND as dir' echo echo '=== Check flat ===' ls $APP/Contents/Resources/python-standalone.tar.gz)",
-      "Bash(echo 'No flat tarball' echo echo '=== All Resources ===' ls $APP/Contents/Resources/)"
+      "Bash(echo 'No flat tarball' echo echo '=== All Resources ===' ls $APP/Contents/Resources/)",
+      "Bash(gh release:*)",
+      "Bash(xcodebuild -scheme Lunar -destination 'platform=macOS' build)",
+      "Bash(git -C /Users/matt/Projects/nawno status --short)"
     ]
   }
 }

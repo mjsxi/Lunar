@@ -24,6 +24,11 @@ struct OnboardingInstallModelView: View {
         return "\(size) GB"
     }
 
+    func installedSizeBadge(_ modelName: String) -> String? {
+        guard let gb = appManager.modelSizeGB(for: modelName) else { return nil }
+        return "\(formatSize(gb)) GB"
+    }
+
     /// The maximum allowable model size as a fraction of the device's total RAM.
     /// For example, a value of 0.6 means the model's size should not exceed 60% of the device's total memory.
     let modelMemoryThreshold = 0.75
@@ -67,7 +72,6 @@ struct OnboardingInstallModelView: View {
             if appManager.installedModels.count > 0 {
                 Section(header: Text("installed")) {
                     ForEach(appManager.installedModels, id: \.self) { modelName in
-                        let model = ModelConfiguration.getModelByName(modelName)
                         Button {} label: {
                             Label {
                                 Text(appManager.modelDisplayName(modelName))
@@ -75,7 +79,7 @@ struct OnboardingInstallModelView: View {
                                 Image(systemName: "checkmark")
                             }
                         }
-                        .badge(sizeBadge(model))
+                        .badge(installedSizeBadge(modelName))
                         #if os(macOS)
                             .buttonStyle(.borderless)
                         #endif

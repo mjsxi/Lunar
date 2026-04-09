@@ -17,6 +17,10 @@ public extension ModelConfiguration {
         let isReasoning = SuggestedModelsCatalog.first(matching: name)?.isReasoning ?? false
         return isReasoning ? .reasoning : .regular
     }
+
+    func modelType(reasoningEnabled: Bool) -> ModelType {
+        return reasoningEnabled ? .reasoning : .regular
+    }
 }
 
 extension ModelConfiguration {
@@ -35,8 +39,9 @@ extension ModelConfiguration {
         return nil
     }
 
-    func getPromptHistory(thread: Thread, systemPrompt: String) -> [[String: String]] {
+    func getPromptHistory(thread: Thread, systemPrompt: String, reasoningEnabled: Bool? = nil) -> [[String: String]] {
         var history: [[String: String]] = []
+        let isReasoning = reasoningEnabled ?? (modelType == .reasoning)
 
         // system prompt
         history.append([
@@ -49,7 +54,7 @@ extension ModelConfiguration {
             let role = message.role.rawValue
             history.append([
                 "role": role,
-                "content": formatForTokenizer(message.content), // remove reasoning part
+                "content": formatForTokenizer(message.content, reasoningEnabled: isReasoning), // remove reasoning part
             ])
         }
 
@@ -57,8 +62,9 @@ extension ModelConfiguration {
     }
 
     // TODO: Remove this function when Jinja gets updated
-    func formatForTokenizer(_ message: String) -> String {
-        if modelType == .reasoning {
+    func formatForTokenizer(_ message: String, reasoningEnabled: Bool? = nil) -> String {
+        let isReasoning = reasoningEnabled ?? (modelType == .reasoning)
+        if isReasoning {
             let pattern = "<think>.*?(</think>|$)"
             do {
                 let regex = try NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators])

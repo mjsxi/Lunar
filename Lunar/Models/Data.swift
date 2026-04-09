@@ -49,6 +49,15 @@ class AppManager: ObservableObject {
     private let modelTopKKey = "modelTopK"
     private let modelTopPKey = "modelTopP"
     private let modelContextWindowKey = "modelContextWindow"
+    private let modelReasoningEnabledKey = "modelReasoningEnabled"
+
+    @Published var modelReasoningEnabled: [String: Bool] = [:] {
+        didSet {
+            if let data = try? JSONEncoder().encode(modelReasoningEnabled) {
+                UserDefaults.standard.set(data, forKey: modelReasoningEnabledKey)
+            }
+        }
+    }
 
     @Published var modelContextWindow: [String: Int] = [:] {
         didSet {
@@ -155,6 +164,10 @@ class AppManager: ObservableObject {
            let decoded = try? JSONDecoder().decode([String: String].self, from: data) {
             modelSystemPrompts = decoded
         }
+        if let data = UserDefaults.standard.data(forKey: modelReasoningEnabledKey),
+           let decoded = try? JSONDecoder().decode([String: Bool].self, from: data) {
+            modelReasoningEnabled = decoded
+        }
     }
 
     func systemPrompt(for modelName: String) -> String {
@@ -179,6 +192,18 @@ class AppManager: ObservableObject {
     func setTopP(_ value: Float, for modelName: String) { modelTopP[modelName] = value }
     func setContextWindow(_ value: Int, for modelName: String) { modelContextWindow[modelName] = value }
 
+    /// Whether reasoning (think tags) is enabled for a model.
+    /// For suggested models, defaults to the catalog's `isReasoning` flag.
+    /// For custom HuggingFace models, defaults to `false`.
+    func isReasoningEnabled(for modelName: String) -> Bool {
+        if let override = modelReasoningEnabled[modelName] { return override }
+        return SuggestedModelsCatalog.first(matching: modelName)?.isReasoning ?? false
+    }
+
+    func setReasoningEnabled(_ value: Bool, for modelName: String) {
+        modelReasoningEnabled[modelName] = value
+    }
+
     func setDisplayNameOverride(_ name: String?, for modelName: String) {
         if let name, !name.trimmingCharacters(in: .whitespaces).isEmpty {
             displayNameOverrides[modelName] = name
@@ -189,6 +214,32 @@ class AppManager: ObservableObject {
 
     func huggingFaceURL(for modelName: String) -> URL? {
         URL(string: "https://huggingface.co/\(modelName)")
+    }
+
+    /// Returns the on-disk size of a downloaded model in GB, or the catalog size as fallback.
+    func modelSizeGB(for modelName: String) -> Double? {
+        if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            let dir = docs.appendingPathComponent("huggingface/models/\(modelName)")
+            if let bytes = directorySize(dir), bytes > 0 {
+                return Double(bytes) / 1_073_741_824.0
+            }
+        }
+        return SuggestedModelsCatalog.first(matching: modelName)?.sizeGB
+    }
+
+    private func directorySize(_ url: URL) -> Int64? {
+        guard let enumerator = FileManager.default.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else { return nil }
+        var total: Int64 = 0
+        for case let fileURL as URL in enumerator {
+            if let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+                total += Int64(size)
+            }
+        }
+        return total
     }
 
     func backend(for modelName: String) -> BackendKind {
@@ -249,6 +300,7 @@ class AppManager: ObservableObject {
         installedModels.removeAll { $0 == model }
         customHFModels.removeAll { $0 == model }
         modelBackends.removeValue(forKey: model)
+        modelReasoningEnabled.removeValue(forKey: model)
         if currentModelName == model {
             currentModelName = installedModels.first
         }
@@ -398,7 +450,7 @@ enum AppTintColor: String, CaseIterable {
     func getColor() -> Color {
         switch self {
         case .monochrome:
-            .primary
+            .appAccent
         case .blue:
             .blue
         case .red:

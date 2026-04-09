@@ -22,6 +22,7 @@ struct ModelsSettingsView: View {
                 } label: {
                     Label("add from huggingface…", systemImage: "plus.circle")
                 }
+                .tint(.primary)
                 #if os(macOS)
                 .buttonStyle(.borderless)
                 #endif
@@ -31,6 +32,7 @@ struct ModelsSettingsView: View {
                 } label: {
                     Label("install a model", systemImage: "arrow.down.circle.dotted")
                 }
+                .tint(.primary)
                 #if os(macOS)
                 .buttonStyle(.borderless)
                 #endif
@@ -47,9 +49,11 @@ struct ModelsSettingsView: View {
                             } label: {
                                 HStack {
                                     Image(systemName: appManager.currentModelName == modelName ? "checkmark.circle.fill" : "circle")
+                                        .foregroundColor(appManager.currentModelName == modelName ? .appAccent : .primary)
                                     Text(appManager.modelDisplayName(modelName))
                                 }
                             }
+                            .tint(.primary)
                             .buttonStyle(.borderless)
 
                             Spacer()
