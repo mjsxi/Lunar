@@ -230,13 +230,12 @@ struct ChatView: View {
                     Image(.moon)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .frame(width: 700)
+                        .frame(width: 800)
                         .opacity(currentThread != nil ? 0.2 : 0.5)
                         .animation(.easeInOut(duration: 0.5), value: currentThread != nil)
                         .rotationEffect(.degrees(moonRotation))
-                        .position(x: geo.size.width / 2, y: geo.size.height * 0.85 + 80)
+                        .position(x: geo.size.width / 2, y: geo.size.height * 0.85 + 100)
                 }
-                .clipped()
             )
             .overlay(alignment: .top) {
                 LinearGradient(
