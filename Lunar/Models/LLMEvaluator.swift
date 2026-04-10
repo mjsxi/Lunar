@@ -84,7 +84,18 @@ class LLMEvaluator {
 
     enum LoadState {
         case idle
+        case loading
         case loaded(ModelContainer)
+        case loadedPython
+        case failed
+    }
+
+    var statusColor: Color {
+        switch loadState {
+        case .idle, .loading: return .yellow
+        case .loaded, .loadedPython: return .green
+        case .failed: return .red
+        }
     }
 
     var loadState = LoadState.idle
@@ -97,26 +108,37 @@ class LLMEvaluator {
         }
 
         switch loadState {
-        case .idle:
+        case .idle, .failed, .loadedPython:
+            loadState = .loading
+
             // limit the buffer cache
             MLX.Memory.cacheLimit = 20 * 1024 * 1024
 
-            let modelContainer = try await LLMModelFactory.shared.loadContainer(
-                from: LunarHubDownloader(),
-                using: LunarTokenizerLoader(),
-                configuration: model,
-                progressHandler: { [modelConfiguration] progress in
-                    Task { @MainActor in
-                        self.modelInfo =
-                            "Downloading \(modelConfiguration.name): \(Int(progress.fractionCompleted * 100))%"
-                        self.progress = progress.fractionCompleted
+            do {
+                let modelContainer = try await LLMModelFactory.shared.loadContainer(
+                    from: LunarHubDownloader(),
+                    using: LunarTokenizerLoader(),
+                    configuration: model,
+                    progressHandler: { [modelConfiguration] progress in
+                        Task { @MainActor in
+                            self.modelInfo =
+                                "Downloading \(modelConfiguration.name): \(Int(progress.fractionCompleted * 100))%"
+                            self.progress = progress.fractionCompleted
+                        }
                     }
-                }
-            )
-            modelInfo =
-                "Loaded \(modelConfiguration.id).  Weights: \(MLX.Memory.activeMemory / 1024 / 1024)M"
-            loadState = .loaded(modelContainer)
-            return modelContainer
+                )
+                modelInfo =
+                    "Loaded \(modelConfiguration.id).  Weights: \(MLX.Memory.activeMemory / 1024 / 1024)M"
+                loadState = .loaded(modelContainer)
+                return modelContainer
+            } catch {
+                loadState = .failed
+                throw error
+            }
+
+        case .loading:
+            // Already loading — wait and retry
+            throw LLMEvaluatorError.modelNotFound(modelName)
 
         case let .loaded(modelContainer):
             return modelContainer
@@ -335,6 +357,7 @@ class LLMEvaluator {
 
     #if os(macOS)
     private func runPythonBackend(modelName: String, thread: Thread, systemPrompt: String) async {
+        loadState = .loading
         let backend = BackendRouter.shared.backend(for: .pythonMLX)
         var turns: [ChatTurn] = [ChatTurn(role: "system", content: systemPrompt)]
         for m in thread.sortedMessages {
@@ -354,12 +377,17 @@ class LLMEvaluator {
             )
             for try await chunk in stream {
                 if cancelled { backend.cancel(); break }
-                if firstTokenTime == nil { firstTokenTime = Date() }
+                if firstTokenTime == nil {
+                    firstTokenTime = Date()
+                    loadState = .loadedPython
+                }
                 tokenCount += 1
                 self.output = chunk
             }
+            if case .loading = loadState { loadState = .loadedPython }
         } catch {
             self.output = "Failed: \(error.localizedDescription)"
+            loadState = .failed
         }
         let elapsed = Date().timeIntervalSince(streamStart)
         lastTokenCount = tokenCount

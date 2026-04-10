@@ -255,7 +255,7 @@ struct ChatView: View {
                 emptyStatePhrase = ChatView.emptyStatePhrases.randomElement() ?? "Say something..."
                 moonRotation = 0
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    withAnimation(.linear(duration: 420).repeatForever(autoreverses: false)) {
+                    withAnimation(.linear(duration: 540).repeatForever(autoreverses: false)) {
                         moonRotation = 360
                     }
                 }
@@ -306,7 +306,13 @@ struct ChatView: View {
                             appManager.playHaptic()
                             showModelPicker.toggle()
                         }) {
-                            Image(systemName: "gyroscope")
+                            HStack(spacing: 4) {
+                                Circle()
+                                    .fill(llm.statusColor)
+                                    .frame(width: 8, height: 8)
+                                Image(systemName: "gyroscope")
+                            }
+                            .padding(.leading, 4)
                         }
                     }
                     ToolbarItem(placement: .topBarTrailing) {
@@ -323,7 +329,13 @@ struct ChatView: View {
                             appManager.playHaptic()
                             showModelPicker.toggle()
                         } label: {
-                            Image(systemName: "gyroscope")
+                            HStack(spacing: 4) {
+                                Circle()
+                                    .fill(llm.statusColor)
+                                    .frame(width: 8, height: 8)
+                                Image(systemName: "gyroscope")
+                            }
+                            .padding(.leading, 4)
                         }
                         .help("models")
                     }
