@@ -214,46 +214,55 @@ struct ChatView: View {
             VStack(spacing: 0) {
                 if let currentThread = currentThread {
                     ConversationView(thread: currentThread, generatingThreadID: generatingThreadID)
-                    chatInput
-                        .padding()
                 } else {
-                    ZStack {
-                        GeometryReader { geo in
-                            Image(.moon)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 700)
-                                .opacity(0.5)
-                                .rotationEffect(.degrees(moonRotation))
-                                .position(x: geo.size.width / 2, y: geo.size.height * 0.85 + 80)
-                        }
+                    Spacer()
+                    Text(emptyStatePhrase)
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
 
-                        VStack {
-                            Spacer()
-                            Text(emptyStatePhrase)
-                                .font(.headline)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                        }
-
-                        VStack {
-                            Spacer()
-                            chatInput
-                                .padding()
-                        }
-                    }
-                    .onAppear {
-                        emptyStatePhrase = ChatView.emptyStatePhrases.randomElement() ?? "Say something..."
-                        moonRotation = 0
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            withAnimation(.linear(duration: 360).repeatForever(autoreverses: false)) {
-                                moonRotation = 360
-                            }
-                        }
+                chatInput
+                    .padding()
+            }
+            .background(
+                GeometryReader { geo in
+                    Image(.moon)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 700)
+                        .opacity(currentThread != nil ? 0.2 : 0.5)
+                        .animation(.easeInOut(duration: 0.5), value: currentThread != nil)
+                        .rotationEffect(.degrees(moonRotation))
+                        .position(x: geo.size.width / 2, y: geo.size.height * 0.85 + 80)
+                }
+                .clipped()
+            )
+            .overlay(alignment: .top) {
+                LinearGradient(
+                    stops: [
+                        .init(color: Color(.windowBackgroundColor), location: 0),
+                        .init(color: Color(.windowBackgroundColor).opacity(0.8), location: 0.4),
+                        .init(color: Color(.windowBackgroundColor).opacity(0), location: 1)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 80)
+                .ignoresSafeArea(edges: .top)
+                .allowsHitTesting(false)
+            }
+            .onAppear {
+                emptyStatePhrase = ChatView.emptyStatePhrases.randomElement() ?? "Say something..."
+                moonRotation = 0
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    withAnimation(.linear(duration: 420).repeatForever(autoreverses: false)) {
+                        moonRotation = 360
                     }
                 }
             }
             .navigationTitle(chatTitle)
+            .toolbarBackground(.hidden)
             .onChange(of: currentThread?.id) { _, _ in
                 if let t = currentThread { maybeScheduleTitleSummary(for: t, immediate: true) }
             }

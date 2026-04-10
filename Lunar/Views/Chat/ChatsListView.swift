@@ -74,6 +74,7 @@ struct ChatsListView: View {
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                             .frame(width: 64, height: 64)
+                            .opacity(0.8)
                             .offset(y: -16)
                     } else {
                         ContentUnavailableView {

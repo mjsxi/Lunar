@@ -213,15 +213,19 @@ struct ConversationView: View {
                                     Text("TTFT \(String(format: "%.2f", ttft))s")
                                 }
                                 .font(.caption2.monospacedDigit())
-                                .foregroundStyle(.tertiary)
+                                .foregroundStyle(.secondary)
                             }
                         }
+                        .frame(maxWidth: 550, alignment: message.role == .user ? .trailing : .leading)
+                        .frame(maxWidth: .infinity, alignment: message.role == .user ? .trailing : .leading)
                         .padding()
                         .id(message.id.uuidString)
                     }
 
                     if showStreamingBubble && llm.running && !llm.output.isEmpty && thread.id == generatingThreadID {
                         MessageView(message: Message(role: .assistant, content: llm.output))
+                            .frame(maxWidth: 550, alignment: .leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .padding()
                             .id("output")
                     }
