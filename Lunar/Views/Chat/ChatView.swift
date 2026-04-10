@@ -15,6 +15,7 @@ struct ChatView: View {
     @Environment(LLMEvaluator.self) var llm
     @Namespace var bottomID
     @State var showModelPicker = false
+    @State var showServerError = false
     @State var prompt = ""
     @FocusState.Binding var isPromptFocused: Bool
     @Binding var showChats: Bool
@@ -234,8 +235,11 @@ struct ChatView: View {
                         .opacity(currentThread != nil ? 0.2 : 0.5)
                         .animation(.easeInOut(duration: 0.5), value: currentThread != nil)
                         .rotationEffect(.degrees(moonRotation))
-                        .position(x: geo.size.width / 2, y: geo.size.height * 0.85 + 100)
+                        .position(x: geo.size.width / 2, y: geo.size.height - 300)
                 }
+                .frame(height: 800)
+                .frame(maxHeight: .infinity, alignment: .bottom)
+                .clipped()
             )
             .overlay(alignment: .top) {
                 LinearGradient(
@@ -268,6 +272,23 @@ struct ChatView: View {
             #if os(iOS)
                 .navigationBarTitleDisplayMode(.inline)
             #endif
+                .onChange(of: llm.modelInfo) {
+                    if case .failed = llm.loadState {
+                        showServerError = true
+                    }
+                }
+                .alert("Python Server Failed", isPresented: $showServerError) {
+                    Button("Restart Server") {
+                        Task {
+                            #if os(macOS)
+                            await llm.restartPythonBackend()
+                            #endif
+                        }
+                    }
+                    Button("OK", role: .cancel) { }
+                } message: {
+                    Text(llm.modelInfo)
+                }
                 .sheet(isPresented: $showModelPicker) {
                     NavigationStack {
                         ModelsSettingsView()

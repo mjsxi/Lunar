@@ -48,7 +48,21 @@ class LLMEvaluator {
         progress = 0.0 // reset progress
         loadState = .idle
         modelConfiguration = model
+
+        #if os(macOS)
+        if selectedBackend(for: model.name) == .pythonMLX {
+            await loadPythonBackend(modelName: model.name)
+            return
+        }
+        #endif
+
         _ = try? await load(modelName: model.name)
+    }
+
+    /// String-based overload for callers that don't have access to MLXLMCommon types.
+    func switchModel(named modelName: String) async {
+        let model = ModelConfiguration.getOrRegister(modelName)
+        await switchModel(model)
     }
 
     let maxTokens = 4096
@@ -356,8 +370,36 @@ class LLMEvaluator {
     }
 
     #if os(macOS)
-    private func runPythonBackend(modelName: String, thread: Thread, systemPrompt: String) async {
+    /// Pre-loads the Python MLX server so the status indicator turns green
+    /// before the user sends a message.
+    private func loadPythonBackend(modelName: String) async {
         loadState = .loading
+        let backend = BackendRouter.shared.backend(for: .pythonMLX)
+        do {
+            try await backend.load(modelName: modelName) { [weak self] p in
+                Task { @MainActor in self?.progress = p }
+            }
+            loadState = .loadedPython
+            modelInfo = "Loaded \(modelName) (Python)"
+        } catch {
+            loadState = .failed
+            modelInfo = "Failed: \(error.localizedDescription)"
+        }
+    }
+
+    /// Kills the Python server and restarts it for the current model.
+    func restartPythonBackend() async {
+        let backend = BackendRouter.shared.backend(for: .pythonMLX) as? PythonMLXBackend
+        await backend?.stopServer()
+        await loadPythonBackend(modelName: modelConfiguration.name)
+    }
+
+    private func runPythonBackend(modelName: String, thread: Thread, systemPrompt: String) async {
+        if case .loadedPython = loadState {
+            // Already pre-loaded; keep green indicator
+        } else {
+            loadState = .loading
+        }
         let backend = BackendRouter.shared.backend(for: .pythonMLX)
         var turns: [ChatTurn] = [ChatTurn(role: "system", content: systemPrompt)]
         for m in thread.sortedMessages {

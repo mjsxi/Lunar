@@ -40,7 +40,7 @@ struct ContentView: View {
         .task {
             isPromptFocused = true
             if let modelName = appManager.currentModelName {
-                _ = try? await llm.load(modelName: modelName)
+                await llm.switchModel(named: modelName)
             }
         }
         .if(appManager.userInterfaceIdiom == .phone) { view in

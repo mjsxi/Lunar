@@ -18,9 +18,9 @@ struct ModelsSettingsView: View {
         Form {
             Section(header: Text("add model")) {
                 Button {
-                    showAddModelView = true
+                    showOnboardingInstallModelView.toggle()
                 } label: {
-                    Label("add from huggingface…", systemImage: "plus.circle")
+                    Label("install a model", systemImage: "arrow.down.circle.dotted")
                 }
                 .tint(.primary)
                 #if os(macOS)
@@ -28,9 +28,9 @@ struct ModelsSettingsView: View {
                 #endif
 
                 Button {
-                    showOnboardingInstallModelView.toggle()
+                    showAddModelView = true
                 } label: {
-                    Label("install a model", systemImage: "arrow.down.circle.dotted")
+                    Label("add from huggingface…", systemImage: "plus.circle")
                 }
                 .tint(.primary)
                 #if os(macOS)

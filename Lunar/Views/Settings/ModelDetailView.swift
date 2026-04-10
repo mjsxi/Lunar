@@ -150,6 +150,45 @@ struct ModelDetailView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            if appManager.backend(for: modelName) == .pythonMLX {
+                Section(header: Text("python backend tuning"),
+                        footer: Text("changes take effect on next server restart. larger prefill step sizes reduce time-to-first-token but use more peak memory.")) {
+                    let prefillBinding = Binding<Double>(
+                        get: { Double(appManager.prefillStepSize(for: modelName)) },
+                        set: { appManager.setPrefillStepSize(Int($0), for: modelName) }
+                    )
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("prefill step size")
+                            Spacer()
+                            Text("\(Int(prefillBinding.wrappedValue))")
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                        Slider(value: prefillBinding, in: 512...16384, step: 512)
+                    }
+
+                    let cacheBinding = Binding<Double>(
+                        get: { Double(appManager.promptCacheGB(for: modelName)) },
+                        set: { appManager.setPromptCacheGB(Int($0), for: modelName) }
+                    )
+                    VStack(alignment: .leading, spacing: 4) {
+                        let cacheGB = Int(cacheBinding.wrappedValue)
+                        let weightsGB = appManager.modelSizeGB(for: modelName) ?? 1.0
+                        let totalGB = weightsGB + Double(cacheGB)
+                        let ratio = totalGB / max(appManager.availableMemory, 0.001)
+                        HStack(spacing: 4) {
+                            Text("prompt cache")
+                            Spacer()
+                            Text("\(cacheGB) GB — est. \(Text(String(format: "%.1f GB", totalGB)).foregroundStyle(ramColor(ratio: ratio))) total RAM")
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                        Slider(value: cacheBinding, in: 1...32, step: 1)
+                    }
+                }
+            }
             #endif
 
             Button(role: .destructive) {

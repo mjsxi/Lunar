@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import SwiftData
 import MLXLLM
 
 @main
@@ -15,11 +16,30 @@ struct LunarApp: App {
     #endif
     @StateObject var appManager = AppManager()
     @State var llm = LLMEvaluator()
-    
+
+    var sharedModelContainer: ModelContainer = {
+        let schema = Schema([Thread.self, Message.self])
+        do {
+            return try ModelContainer(for: schema)
+        } catch {
+            // If the store is corrupted or incompatible, delete it and retry
+            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            let storeURL = appSupport.appendingPathComponent("default.store")
+            for suffix in ["", "-wal", "-shm"] {
+                try? FileManager.default.removeItem(at: storeURL.deletingLastPathComponent().appendingPathComponent("default.store" + suffix))
+            }
+            do {
+                return try ModelContainer(for: schema)
+            } catch {
+                fatalError("Could not create ModelContainer: \(error)")
+            }
+        }
+    }()
+
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .modelContainer(for: [Thread.self, Message.self])
+                .modelContainer(sharedModelContainer)
                 .environmentObject(appManager)
                 .environment(llm)
                 .environment(DeviceStat())

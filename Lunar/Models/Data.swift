@@ -15,7 +15,7 @@ class AppManager: ObservableObject {
     @AppStorage("appFontSize") var appFontSize: AppFontSize = .medium
     @AppStorage("appFontWidth") var appFontWidth: AppFontWidth = .standard
     @AppStorage("appColorScheme") var appColorScheme: AppColorScheme = .system
-    @AppStorage("autoTitleDelay") var autoTitleDelay: AutoTitleDelay = .twoMinutes
+    @AppStorage("autoTitleDelay") var autoTitleDelay: AutoTitleDelay = .thirtySeconds
     @AppStorage("currentModelName") var currentModelName: String?
     @AppStorage("shouldPlayHaptics") var shouldPlayHaptics = true
     @AppStorage("numberOfVisits") var numberOfVisits = 0
@@ -50,6 +50,24 @@ class AppManager: ObservableObject {
     private let modelTopPKey = "modelTopP"
     private let modelContextWindowKey = "modelContextWindow"
     private let modelReasoningEnabledKey = "modelReasoningEnabled"
+    private let modelPrefillStepSizeKey = "modelPrefillStepSize"
+    private let modelPromptCacheGBKey = "modelPromptCacheGB"
+
+    @Published var modelPrefillStepSize: [String: Int] = [:] {
+        didSet {
+            if let data = try? JSONEncoder().encode(modelPrefillStepSize) {
+                UserDefaults.standard.set(data, forKey: modelPrefillStepSizeKey)
+            }
+        }
+    }
+
+    @Published var modelPromptCacheGB: [String: Int] = [:] {
+        didSet {
+            if let data = try? JSONEncoder().encode(modelPromptCacheGB) {
+                UserDefaults.standard.set(data, forKey: modelPromptCacheGBKey)
+            }
+        }
+    }
 
     @Published var modelReasoningEnabled: [String: Bool] = [:] {
         didSet {
@@ -168,6 +186,14 @@ class AppManager: ObservableObject {
            let decoded = try? JSONDecoder().decode([String: Bool].self, from: data) {
             modelReasoningEnabled = decoded
         }
+        if let data = UserDefaults.standard.data(forKey: modelPrefillStepSizeKey),
+           let decoded = try? JSONDecoder().decode([String: Int].self, from: data) {
+            modelPrefillStepSize = decoded
+        }
+        if let data = UserDefaults.standard.data(forKey: modelPromptCacheGBKey),
+           let decoded = try? JSONDecoder().decode([String: Int].self, from: data) {
+            modelPromptCacheGB = decoded
+        }
     }
 
     func systemPrompt(for modelName: String) -> String {
@@ -191,6 +217,11 @@ class AppManager: ObservableObject {
     func setTopK(_ value: Int, for modelName: String) { modelTopK[modelName] = value }
     func setTopP(_ value: Float, for modelName: String) { modelTopP[modelName] = value }
     func setContextWindow(_ value: Int, for modelName: String) { modelContextWindow[modelName] = value }
+
+    func prefillStepSize(for modelName: String) -> Int { modelPrefillStepSize[modelName] ?? 8192 }
+    func promptCacheGB(for modelName: String) -> Int { modelPromptCacheGB[modelName] ?? 8 }
+    func setPrefillStepSize(_ value: Int, for modelName: String) { modelPrefillStepSize[modelName] = value }
+    func setPromptCacheGB(_ value: Int, for modelName: String) { modelPromptCacheGB[modelName] = value }
 
     /// Whether reasoning (think tags) is enabled for a model.
     /// For suggested models, defaults to the catalog's `isReasoning` flag.

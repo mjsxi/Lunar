@@ -31,22 +31,45 @@ final class PythonMLXBackend: InferenceBackend {
         return []
     }
 
+    /// Last error output captured from the Python server's stderr.
+    private(set) var lastServerError: String?
+
     func load(modelName: String, progress: @escaping (Double) -> Void) async throws {
         if loadedModelName == modelName, serverProcess?.isRunning == true { return }
         await stopServer()
+        lastServerError = nil
 
         let port = Int.random(in: 49152...65535)
+
+        // Read per-model Python backend settings from UserDefaults.
+        let prefillStepSize: Int = {
+            if let data = UserDefaults.standard.data(forKey: "modelPrefillStepSize"),
+               let dict = try? JSONDecoder().decode([String: Int].self, from: data) {
+                return dict[modelName] ?? 8192
+            }
+            return 8192
+        }()
+        let cacheGB: Int = {
+            if let data = UserDefaults.standard.data(forKey: "modelPromptCacheGB"),
+               let dict = try? JSONDecoder().decode([String: Int].self, from: data) {
+                return dict[modelName] ?? 8
+            }
+            return 8
+        }()
+
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: pythonPath)
         proc.arguments = pythonArgsPrefix + [
             "-m", "mlx_lm.server",
             "--model", modelName,
             "--host", "127.0.0.1",
-            "--port", "\(port)"
+            "--port", "\(port)",
+            "--prefill-step-size", "\(prefillStepSize)",
+            "--prompt-cache-bytes", "\(cacheGB)GB"
         ]
-        let outPipe = Pipe()
-        proc.standardOutput = outPipe
-        proc.standardError = outPipe
+        let errPipe = Pipe()
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = errPipe
 
         try proc.run()
         serverProcess = proc
@@ -57,8 +80,18 @@ final class PythonMLXBackend: InferenceBackend {
         let deadline = Date().addingTimeInterval(120)
         while Date() < deadline {
             if !proc.isRunning {
+                let errData = errPipe.fileHandleForReading.availableData
+                let errText = String(data: errData, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let tail = errText.flatMap { text in
+                    text.split(separator: "\n", omittingEmptySubsequences: true)
+                        .suffix(3)
+                        .joined(separator: "\n")
+                }
+                lastServerError = tail
+                let message = tail ?? "mlx_lm.server exited before becoming ready"
                 throw NSError(domain: "PythonMLXBackend", code: 1,
-                              userInfo: [NSLocalizedDescriptionKey: "mlx_lm.server exited before becoming ready"])
+                              userInfo: [NSLocalizedDescriptionKey: message])
             }
             if (try? await ping(port: port)) == true {
                 progress(1.0)
@@ -67,6 +100,8 @@ final class PythonMLXBackend: InferenceBackend {
             try? await Task.sleep(nanoseconds: 500_000_000)
             progress(0.5)
         }
+        proc.terminate()
+        lastServerError = "Timed out waiting for mlx_lm.server (120s)"
         throw NSError(domain: "PythonMLXBackend", code: 2,
                       userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for mlx_lm.server"])
     }
@@ -101,6 +136,7 @@ final class PythonMLXBackend: InferenceBackend {
                         "top_p": params.topP,
                         "top_k": params.topK,
                         "max_tokens": params.maxTokens,
+                        "stop": ["<end_of_turn>", "<|im_end|>", "<|eot_id|>", "<|end|>"],
                         "stream": true
                     ]
                     req.httpBody = try JSONSerialization.data(withJSONObject: body)
