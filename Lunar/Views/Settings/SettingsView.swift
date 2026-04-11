@@ -51,6 +51,10 @@ struct SettingsView: View {
                     NavigationLink(destination: ChatsSettingsView(currentThread: $currentThread)) {
                         Label("chats", systemImage: "ellipsis.bubble")
                     }
+
+                    NavigationLink(destination: KnowledgeBaseSettingsView()) {
+                        Label("knowledge base", systemImage: "doc.text.magnifyingglass")
+                    }
                 }
 
                 Section {} footer: {
@@ -103,5 +107,6 @@ extension Bundle {
 #Preview {
     SettingsView(currentThread: .constant(nil))
         .environmentObject(AppManager())
+        .environmentObject(KnowledgeBaseIndex())
         .environment(LLMEvaluator())
 }

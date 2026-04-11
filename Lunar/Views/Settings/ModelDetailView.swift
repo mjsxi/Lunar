@@ -11,6 +11,7 @@ import SwiftUI
 
 struct ModelDetailView: View {
     @EnvironmentObject var appManager: AppManager
+    @EnvironmentObject var knowledgeBase: KnowledgeBaseIndex
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     let modelName: String
@@ -64,6 +65,15 @@ struct ModelDetailView: View {
                 ))
                 .textEditorStyle(.plain)
                 .frame(minHeight: 80)
+            }
+
+            if knowledgeBase.hasFolderConfigured {
+                Section(header: Text("knowledge base"), footer: Text("when enabled, the model will search your knowledge base for relevant context before answering.")) {
+                    Toggle("knowledge base", isOn: Binding(
+                        get: { appManager.isRAGEnabled(for: modelName) },
+                        set: { appManager.setRAGEnabled($0, for: modelName) }
+                    ))
+                }
             }
 
             Section(header: Text("reasoning"), footer: Text("enable to let the model think step-by-step using <think> tags. works with reasoning-capable models.")) {

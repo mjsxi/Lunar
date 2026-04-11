@@ -52,6 +52,17 @@ class AppManager: ObservableObject {
     private let modelReasoningEnabledKey = "modelReasoningEnabled"
     private let modelPrefillStepSizeKey = "modelPrefillStepSize"
     private let modelPromptCacheGBKey = "modelPromptCacheGB"
+    private let modelRAGEnabledKey = "modelRAGEnabled"
+
+    @AppStorage("ragTopK") var ragTopK = 5
+
+    @Published var modelRAGEnabled: [String: Bool] = [:] {
+        didSet {
+            if let data = try? JSONEncoder().encode(modelRAGEnabled) {
+                UserDefaults.standard.set(data, forKey: modelRAGEnabledKey)
+            }
+        }
+    }
 
     @Published var modelPrefillStepSize: [String: Int] = [:] {
         didSet {
@@ -194,6 +205,10 @@ class AppManager: ObservableObject {
            let decoded = try? JSONDecoder().decode([String: Int].self, from: data) {
             modelPromptCacheGB = decoded
         }
+        if let data = UserDefaults.standard.data(forKey: modelRAGEnabledKey),
+           let decoded = try? JSONDecoder().decode([String: Bool].self, from: data) {
+            modelRAGEnabled = decoded
+        }
     }
 
     func systemPrompt(for modelName: String) -> String {
@@ -222,6 +237,9 @@ class AppManager: ObservableObject {
     func promptCacheGB(for modelName: String) -> Int { modelPromptCacheGB[modelName] ?? 8 }
     func setPrefillStepSize(_ value: Int, for modelName: String) { modelPrefillStepSize[modelName] = value }
     func setPromptCacheGB(_ value: Int, for modelName: String) { modelPromptCacheGB[modelName] = value }
+
+    func isRAGEnabled(for modelName: String) -> Bool { modelRAGEnabled[modelName] ?? false }
+    func setRAGEnabled(_ value: Bool, for modelName: String) { modelRAGEnabled[modelName] = value }
 
     /// Whether reasoning (think tags) is enabled for a model.
     /// For suggested models, defaults to the catalog's `isReasoning` flag.

@@ -10,6 +10,7 @@ import SwiftUI
 
 struct ChatView: View {
     @EnvironmentObject var appManager: AppManager
+    @EnvironmentObject var knowledgeBase: KnowledgeBaseIndex
     @Environment(\.modelContext) var modelContext
     @Binding var currentThread: Thread?
     @Environment(LLMEvaluator.self) var llm
@@ -391,7 +392,7 @@ struct ChatView: View {
                     sendMessage(Message(role: .user, content: message, thread: currentThread))
                     isPromptFocused = true
                     if let modelName = appManager.currentModelName {
-                        let output = await llm.generate(modelName: modelName, thread: currentThread, systemPrompt: appManager.systemPrompt(for: modelName))
+                        let output = await llm.generate(modelName: modelName, thread: currentThread, systemPrompt: appManager.systemPrompt(for: modelName), knowledgeBase: knowledgeBase)
                         sendMessage(Message(role: .assistant, content: output, thread: currentThread, generatingTime: llm.thinkingTime, tokensPerSecond: llm.lastTokensPerSecond, tokenCount: llm.lastTokenCount, timeToFirstToken: llm.lastTimeToFirstToken))
                         generatingThreadID = nil
                         maybeScheduleTitleSummary(for: currentThread)
@@ -509,4 +510,5 @@ struct ChatView: View {
 #Preview {
     @FocusState var isPromptFocused: Bool
     ChatView(currentThread: .constant(nil), isPromptFocused: $isPromptFocused, showChats: .constant(false), showSettings: .constant(false))
+        .environmentObject(KnowledgeBaseIndex())
 }

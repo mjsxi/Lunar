@@ -15,6 +15,7 @@ struct LunarApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     #endif
     @StateObject var appManager = AppManager()
+    @StateObject var knowledgeBase = KnowledgeBaseIndex()
     @State var llm = LLMEvaluator()
 
     var sharedModelContainer: ModelContainer = {
@@ -41,9 +42,13 @@ struct LunarApp: App {
             ContentView()
                 .modelContainer(sharedModelContainer)
                 .environmentObject(appManager)
+                .environmentObject(knowledgeBase)
                 .environment(llm)
                 .environment(DeviceStat())
                 .preferredColorScheme(appManager.appColorScheme.colorScheme)
+                .onAppear {
+                    knowledgeBase.resolveBookmark()
+                }
                 #if os(macOS)
                 .frame(minWidth: 640, maxWidth: .infinity, minHeight: 420, maxHeight: .infinity)
                 .onAppear {

@@ -164,7 +164,7 @@ class LLMEvaluator {
         cancelled = true
     }
 
-    func generate(modelName: String, thread: Thread, systemPrompt: String) async -> String {
+    func generate(modelName: String, thread: Thread, systemPrompt: String, knowledgeBase: KnowledgeBaseIndex? = nil) async -> String {
         guard !running else { return "" }
 
         running = true
@@ -172,11 +172,30 @@ class LLMEvaluator {
         output = ""
         startTime = Date()
 
+        // Augment system prompt with knowledge base context if RAG is enabled
+        var effectiveSystemPrompt = systemPrompt
+        if let kb = knowledgeBase, kb.hasIndex, readRAGEnabled(for: modelName) {
+            let lastUserMessage = thread.sortedMessages.last(where: { $0.role == .user })?.content ?? ""
+            if !lastUserMessage.isEmpty {
+                let ragTopK = UserDefaults.standard.integer(forKey: "ragTopK")
+                let topK = ragTopK > 0 ? ragTopK : 5
+                let results = kb.query(lastUserMessage, topK: topK)
+                if !results.isEmpty {
+                    var ragContext = "\n\nUse the following reference material to help answer the user's question. If the reference material doesn't contain relevant information, say so.\n\n--- Reference Material ---"
+                    for chunk in results {
+                        ragContext += "\n\n[Source: \(chunk.fileName)]\n\(chunk.text)"
+                    }
+                    ragContext += "\n\n---"
+                    effectiveSystemPrompt += ragContext
+                }
+            }
+        }
+
         // Per-model backend routing. On macOS the user can pick MLX LM (Python)
         // for any installed model in Settings → Models → <model>.
         #if os(macOS)
         if selectedBackend(for: modelName) == .pythonMLX {
-            await runPythonBackend(modelName: modelName, thread: thread, systemPrompt: systemPrompt)
+            await runPythonBackend(modelName: modelName, thread: thread, systemPrompt: effectiveSystemPrompt)
             running = false
             return output
         }
@@ -187,7 +206,7 @@ class LLMEvaluator {
 
             // augment the prompt as needed
             let reasoningEnabled = readReasoningEnabled(for: modelName)
-            let promptHistory = await modelContainer.configuration.getPromptHistory(thread: thread, systemPrompt: systemPrompt, reasoningEnabled: reasoningEnabled)
+            let promptHistory = await modelContainer.configuration.getPromptHistory(thread: thread, systemPrompt: effectiveSystemPrompt, reasoningEnabled: reasoningEnabled)
 
             if reasoningEnabled {
                 isThinking = true
@@ -349,6 +368,13 @@ class LLMEvaluator {
         return nil
     }
     #endif
+
+    private func readRAGEnabled(for modelName: String) -> Bool {
+        guard let data = UserDefaults.standard.data(forKey: "modelRAGEnabled"),
+              let dict = try? JSONDecoder().decode([String: Bool].self, from: data),
+              let value = dict[modelName] else { return false }
+        return value
+    }
 
     private func readReasoningEnabled(for modelName: String) -> Bool {
         if let data = UserDefaults.standard.data(forKey: "modelReasoningEnabled"),
