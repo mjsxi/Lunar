@@ -66,14 +66,17 @@ extension ModelConfiguration {
         let isReasoning = reasoningEnabled ?? (modelType == .reasoning)
         if isReasoning {
             let pattern = "<think>.*?(</think>|$)"
+            var result = message
             do {
                 let regex = try NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators])
-                let range = NSRange(location: 0, length: message.utf16.count)
-                let formattedMessage = regex.stringByReplacingMatches(in: message, options: [], range: range, withTemplate: "")
-                return " " + formattedMessage
-            } catch {
-                return " " + message
+                let range = NSRange(location: 0, length: result.utf16.count)
+                result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "")
+            } catch {}
+            // Strip orphaned </think> prefix (e.g. Qwen 3.5 omits opening <think>)
+            if let endRange = result.range(of: "</think>") {
+                result = String(result[endRange.upperBound...])
             }
+            return " " + result.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return message
     }

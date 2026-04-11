@@ -20,8 +20,16 @@ final class MLXSwiftBackend: @preconcurrency InferenceBackend {
     private var loadedName: String?
     private var cancelled = false
 
+    func unload() {
+        loadedContainer = nil
+        loadedName = nil
+        MLX.Memory.clearCache()
+    }
+
     func load(modelName: String, progress: @escaping (Double) -> Void) async throws {
         if loadedName == modelName, loadedContainer != nil { return }
+        // Release the previous model before loading a new one
+        unload()
         let config = ModelConfiguration.getOrRegister(modelName)
         MLX.Memory.cacheLimit = 20 * 1024 * 1024
         let container = try await LLMModelFactory.shared.loadContainer(

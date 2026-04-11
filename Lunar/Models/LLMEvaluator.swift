@@ -49,6 +49,9 @@ class LLMEvaluator {
         loadState = .idle
         modelConfiguration = model
 
+        // Release previous model memory before loading the new one
+        MLX.Memory.clearCache()
+
         #if os(macOS)
         if selectedBackend(for: model.name) == .pythonMLX {
             await loadPythonBackend(modelName: model.name)
@@ -149,8 +152,23 @@ class LLMEvaluator {
             }
 
         case .loading:
-            // Already loading — wait and retry
-            throw LLMEvaluatorError.modelNotFound(modelName)
+            // Already loading — wait for it to finish
+            for _ in 0..<300 { // up to ~30s
+                try await Task.sleep(nanoseconds: 100_000_000)
+                if case let .loaded(modelContainer) = loadState {
+                    return modelContainer
+                }
+                if case .failed = loadState {
+                    // Previous load failed; reset and try again
+                    return try await load(modelName: modelName)
+                }
+                if case .idle = loadState {
+                    return try await load(modelName: modelName)
+                }
+            }
+            // Timed out waiting — reset and try fresh
+            loadState = .idle
+            return try await load(modelName: modelName)
 
         case let .loaded(modelContainer):
             return modelContainer
@@ -230,12 +248,18 @@ class LLMEvaluator {
             var tokenCount = 0
             var tps: Double = 0
             var firstTokenTime: Date?
+            var didInjectThinkTag = false
             streamLoop: for await event in stream {
                 if cancelled { break }
                 switch event {
                 case .chunk(let text):
                     if firstTokenTime == nil { firstTokenTime = Date() }
                     accumulated += text
+                    // Normalize missing <think> tag (e.g. Qwen 3.5 omits it)
+                    if reasoningEnabled && !didInjectThinkTag && !accumulated.hasPrefix("<think>") {
+                        accumulated = "<think>\n" + accumulated
+                        didInjectThinkTag = true
+                    }
                     tokenCount += 1
                     if let stop = stopSequences.first(where: { accumulated.contains($0) }) {
                         if let r = accumulated.range(of: stop) {

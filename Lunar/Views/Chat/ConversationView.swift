@@ -47,7 +47,14 @@ struct MessageView: View {
 
     func processThinkingContent(_ content: String) -> (String?, String?) {
         guard let startRange = content.range(of: "<think>") else {
-            // No <think> tag, return entire content as the second part
+            // No <think> tag — check for </think> without opening tag (e.g. Qwen 3.5)
+            if let endRange = content.range(of: "</think>") {
+                let thinking = String(content[content.startIndex..<endRange.lowerBound])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let afterThink = String(content[endRange.upperBound...])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return (thinking.isEmpty ? nil : thinking, afterThink.isEmpty ? nil : afterThink)
+            }
             return (nil, content.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         guard let endRange = content.range(of: "</think>") else {
