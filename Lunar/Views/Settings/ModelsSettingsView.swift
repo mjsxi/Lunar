@@ -11,7 +11,9 @@ import MLXLMCommon
 struct ModelsSettingsView: View {
     @EnvironmentObject private var appPreferences: AppPreferences
     @EnvironmentObject private var modelSettings: ModelSettingsStore
+    @Environment(\.dismiss) private var dismiss
     @Environment(LLMEvaluator.self) var llm
+    var showsDismissButton = false
 
     var body: some View {
         Form {
@@ -81,6 +83,25 @@ struct ModelsSettingsView: View {
             #endif
         }
         .formStyle(.grouped)
+        #if os(macOS)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if showsDismissButton {
+                VStack(spacing: 0) {
+                    Divider()
+                    Button {
+                        dismiss()
+                    } label: {
+                        Text("close")
+                            .themedSettingsButtonContent()
+                    }
+                    .buttonStyle(.borderless)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(.background)
+                }
+            }
+        }
+        #endif
         .task {
             for name in appPreferences.installedModels {
                 _ = ModelConfiguration.getOrRegister(name)

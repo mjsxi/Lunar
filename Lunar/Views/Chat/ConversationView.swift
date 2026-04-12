@@ -27,6 +27,7 @@ struct MessageView: View {
     @Environment(\.self) private var environment
     @State private var collapsed = true
     let message: Message
+    var streamingPhase: StreamedAssistantPhase? = nil
 
     /// Pick black or white based on the resolved accent color's relative
     /// luminance, so the user-bubble text always has solid contrast against
@@ -42,7 +43,10 @@ struct MessageView: View {
     }
 
     var isThinking: Bool {
-        !message.content.contains("</think>")
+        if let streamingPhase {
+            return streamingPhase == .thinkingInProgress
+        }
+        return !message.content.contains("</think>")
     }
 
     func processThinkingContent(_ content: String) -> (String?, String?) {
@@ -77,6 +81,8 @@ struct MessageView: View {
             if let thinkingTime = llm.thinkingTime {
                 return thinkingTime.formatted
             }
+        } else if llm.running, message.role == .assistant, let thinkingTime = llm.thinkingTime {
+            return thinkingTime.formatted
         } else if let generatingTime = message.generatingTime {
             return "\(generatingTime.formatted)"
         }
@@ -106,7 +112,7 @@ struct MessageView: View {
             if message.role == .user { Spacer() }
 
             if message.role == .assistant {
-                if message.content.isEmpty && llm.running {
+                if streamingPhase == .thinkingInProgress {
                     VStack(alignment: .leading, spacing: 16) {
                         thinkingLabel
                     }
@@ -173,11 +179,6 @@ struct MessageView: View {
 
             if message.role == .assistant { Spacer() }
         }
-        .onAppear {
-            if llm.running {
-                collapsed = false
-            }
-        }
         .onChange(of: llm.elapsedTime) {
             if isThinking {
                 llm.thinkingTime = llm.elapsedTime
@@ -243,7 +244,10 @@ struct ConversationView: View {
                     }
 
                     if shouldShowStreamingBubble {
-                        MessageView(message: Message(role: .assistant, content: llm.output))
+                        MessageView(
+                            message: Message(role: .assistant, content: llm.streamedVisibleOutput),
+                            streamingPhase: llm.streamedAssistantPhase
+                        )
                             .frame(maxWidth: 550, alignment: .leading)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding()

@@ -15,6 +15,12 @@ enum LLMEvaluatorError: Error {
     case modelNotFound(String)
 }
 
+enum StreamedAssistantPhase: Sendable {
+    case nonReasoning
+    case thinkingInProgress
+    case thinkingComplete
+}
+
 @Observable
 @MainActor
 class LLMEvaluator {
@@ -29,6 +35,8 @@ class LLMEvaluator {
     var thinkingTime: TimeInterval?
     var collapsed: Bool = false
     var isThinking: Bool = false
+    var streamedVisibleOutput = ""
+    var streamedAssistantPhase: StreamedAssistantPhase = .nonReasoning
 
     var lastTokensPerSecond: Double = 0
     var lastTokenCount: Int = 0
@@ -90,6 +98,8 @@ class LLMEvaluator {
     /// and is low overhead.  observed ~15% reduction in tokens/s when updating
     /// on every token
     let displayEveryNTokens = 4
+    let reasoningDisplayEveryNTokens = 16
+    let displayUpdateInterval: TimeInterval = 0.12
 
     enum LoadState {
         case idle
@@ -184,15 +194,17 @@ class LLMEvaluator {
         running = true
         cancelled = false
         output = ""
+        streamedVisibleOutput = ""
         startTime = Date()
+        let settings = generationSettings(for: modelName, defaultSystemPrompt: systemPrompt)
         thinkingTime = nil
         isThinking = false
+        streamedAssistantPhase = settings.reasoningEnabled ? .thinkingInProgress : .nonReasoning
         lastTokensPerSecond = 0
         lastTokenCount = 0
         lastTimeToFirstToken = 0
         lastLoadDuration = 0
         let requestStart = startTime ?? Date()
-        let settings = generationSettings(for: modelName, defaultSystemPrompt: systemPrompt)
 
         var ragResults: [DocumentChunk] = []
         let ragStart = Date()
@@ -255,49 +267,53 @@ class LLMEvaluator {
             // <end_of_turn>, ChatML's <|im_end|>, Llama 3's <|eot_id|>).
             let stopSequences = ["<end_of_turn>", "<|im_end|>", "<|eot_id|>", "<|end|>"]
 
-            var accumulated = ""
-            var tokenCount = 0
+            let renderer = StreamingResponseRenderer(
+                reasoningEnabled: reasoningEnabled,
+                normalBatchSize: displayEveryNTokens,
+                reasoningBatchSize: reasoningDisplayEveryNTokens,
+                publishInterval: displayUpdateInterval
+            )
             var tps: Double = 0
             var firstTokenTime: Date?
             var firstVisibleTime: Date?
-            var didInjectThinkTag = false
             streamLoop: for await event in stream {
                 if cancelled { break }
                 switch event {
                 case .chunk(let text):
                     if firstTokenTime == nil { firstTokenTime = Date() }
-                    accumulated += text
-                    // Normalize missing <think> tag (e.g. Qwen 3.5 omits it)
-                    if reasoningEnabled && !didInjectThinkTag && !accumulated.hasPrefix("<think>") {
-                        accumulated = "<think>\n" + accumulated
-                        didInjectThinkTag = true
-                    }
-                    tokenCount += 1
+                    let update = await renderer.append(delta: text, at: Date())
+                    let accumulated = update.fullOutput
                     if let stop = stopSequences.first(where: { accumulated.contains($0) }) {
                         if let r = accumulated.range(of: stop) {
-                            accumulated = String(accumulated[..<r.lowerBound])
+                            let trimmed = String(accumulated[..<r.lowerBound])
+                            let trimmedUpdate = await renderer.replace(fullOutput: trimmed, at: Date(), forcePublish: true)
+                            applyStreamingUpdate(trimmedUpdate)
                         }
                         break streamLoop
                     }
-                    if tokenCount == 1 || tokenCount % displayEveryNTokens == 0 {
-                        self.output = accumulated
+                    if update.shouldPublish {
+                        applyStreamingUpdate(update)
                         if firstVisibleTime == nil {
                             firstVisibleTime = Date()
                         }
                     }
-                    if tokenCount >= maxTokens { break }
+                    if update.tokenCount >= maxTokens { break }
                 case .info(let info):
                     tps = info.tokensPerSecond
                 case .toolCall:
                     break
                 }
             }
-            if firstVisibleTime == nil, !accumulated.isEmpty {
+            let finalUpdate = await renderer.finish(at: Date())
+            applyStreamingUpdate(finalUpdate)
+            if firstVisibleTime == nil, !finalUpdate.visibleOutput.isEmpty {
                 firstVisibleTime = Date()
             }
-            output = accumulated
+            output = finalUpdate.fullOutput
+            streamedVisibleOutput = finalUpdate.visibleOutput
+            streamedAssistantPhase = finalUpdate.phase
             lastTokensPerSecond = tps
-            lastTokenCount = tokenCount
+            lastTokenCount = finalUpdate.tokenCount
             if let start = startTime, let firstToken = firstTokenTime {
                 lastTimeToFirstToken = firstToken.timeIntervalSince(start)
             }
@@ -473,9 +489,14 @@ class LLMEvaluator {
         let coldStart = (backend as? PythonMLXBackend).map {
             $0.loadedModelName != modelName || $0.serverProcess?.isRunning != true
         } ?? false
+        let renderer = StreamingResponseRenderer(
+            reasoningEnabled: settings.reasoningEnabled,
+            normalBatchSize: displayEveryNTokens,
+            reasoningBatchSize: reasoningDisplayEveryNTokens,
+            publishInterval: displayUpdateInterval
+        )
         var firstTokenTime: Date?
         var firstVisibleTime: Date?
-        var tokenCount = 0
         do {
             let stream = backend.generate(
                 modelName: modelName,
@@ -489,13 +510,15 @@ class LLMEvaluator {
             )
             for try await chunk in stream {
                 if cancelled { backend.cancel(); break }
+                let update = await renderer.replace(fullOutput: chunk, at: Date())
                 if firstTokenTime == nil {
                     firstTokenTime = Date()
                     loadState = .loadedPython
                 }
-                tokenCount += 1
-                self.output = chunk
-                if firstVisibleTime == nil {
+                if update.shouldPublish {
+                    applyStreamingUpdate(update)
+                }
+                if firstVisibleTime == nil, !update.visibleOutput.isEmpty {
                     firstVisibleTime = Date()
                 }
             }
@@ -504,9 +527,14 @@ class LLMEvaluator {
             self.output = "Failed: \(error.localizedDescription)"
             loadState = .failed
         }
+        let finalUpdate = await renderer.finish(at: Date())
+        applyStreamingUpdate(finalUpdate)
         let elapsed = Date().timeIntervalSince(requestStart)
-        lastTokenCount = tokenCount
-        lastTokensPerSecond = elapsed > 0 ? Double(tokenCount) / elapsed : 0
+        if firstVisibleTime == nil, !finalUpdate.visibleOutput.isEmpty {
+            firstVisibleTime = Date()
+        }
+        lastTokenCount = finalUpdate.tokenCount
+        lastTokensPerSecond = elapsed > 0 ? Double(finalUpdate.tokenCount) / elapsed : 0
         lastTimeToFirstToken = firstTokenTime?.timeIntervalSince(requestStart) ?? 0
         logTiming(
             modelName: modelName,
@@ -518,6 +546,13 @@ class LLMEvaluator {
             backendLoadTime: (backend as? PythonMLXBackend)?.lastLoadDuration ?? 0,
             coldStart: coldStart
         )
+    }
+
+    private func applyStreamingUpdate(_ update: StreamingRenderUpdate) {
+        output = update.fullOutput
+        streamedVisibleOutput = update.visibleOutput
+        streamedAssistantPhase = update.phase
+        isThinking = update.phase == .thinkingInProgress
     }
 
     #endif
@@ -540,5 +575,126 @@ class LLMEvaluator {
 
     private func formatDuration(_ duration: TimeInterval) -> String {
         String(format: "%.3f", duration)
+    }
+}
+
+private struct StreamingRenderUpdate: Sendable {
+    let fullOutput: String
+    let visibleOutput: String
+    let phase: StreamedAssistantPhase
+    let tokenCount: Int
+    let shouldPublish: Bool
+}
+
+private actor StreamingResponseRenderer {
+    private let reasoningEnabled: Bool
+    private let normalBatchSize: Int
+    private let reasoningBatchSize: Int
+    private let publishInterval: TimeInterval
+
+    private var fullOutput = ""
+    private var visibleOutput = ""
+    private var phase: StreamedAssistantPhase
+    private var tokenCount = 0
+    private var tokensSincePublish = 0
+    private var lastPublishAt: Date?
+    private var didInjectThinkTag = false
+
+    init(
+        reasoningEnabled: Bool,
+        normalBatchSize: Int,
+        reasoningBatchSize: Int,
+        publishInterval: TimeInterval
+    ) {
+        self.reasoningEnabled = reasoningEnabled
+        self.normalBatchSize = normalBatchSize
+        self.reasoningBatchSize = reasoningBatchSize
+        self.publishInterval = publishInterval
+        self.phase = reasoningEnabled ? .thinkingInProgress : .nonReasoning
+    }
+
+    func append(delta: String, at timestamp: Date) -> StreamingRenderUpdate {
+        fullOutput += delta
+        tokenCount += 1
+        tokensSincePublish += 1
+        normalizeReasoningPrefixIfNeeded()
+        refreshPhase()
+        return makeUpdate(at: timestamp, forcePublish: tokenCount == 1)
+    }
+
+    func replace(fullOutput newValue: String, at timestamp: Date, forcePublish: Bool = false) -> StreamingRenderUpdate {
+        if newValue.hasPrefix(fullOutput) {
+            let suffix = String(newValue.dropFirst(fullOutput.count))
+            if !suffix.isEmpty {
+                return append(delta: suffix, at: timestamp)
+            }
+        }
+
+        fullOutput = newValue
+        tokenCount += 1
+        tokensSincePublish += 1
+        normalizeReasoningPrefixIfNeeded()
+        refreshPhase()
+        return makeUpdate(at: timestamp, forcePublish: forcePublish || tokenCount == 1)
+    }
+
+    func finish(at timestamp: Date) -> StreamingRenderUpdate {
+        refreshPhase()
+        visibleOutput = fullOutput
+        lastPublishAt = timestamp
+        tokensSincePublish = 0
+        return StreamingRenderUpdate(
+            fullOutput: fullOutput,
+            visibleOutput: visibleOutput,
+            phase: phase == .thinkingInProgress ? .thinkingComplete : phase,
+            tokenCount: tokenCount,
+            shouldPublish: true
+        )
+    }
+
+    private func normalizeReasoningPrefixIfNeeded() {
+        guard reasoningEnabled, !didInjectThinkTag, !fullOutput.isEmpty else { return }
+        if !fullOutput.hasPrefix("<think>") {
+            fullOutput = "<think>\n" + fullOutput
+            didInjectThinkTag = true
+        }
+    }
+
+    private func refreshPhase() {
+        guard reasoningEnabled else {
+            phase = .nonReasoning
+            visibleOutput = fullOutput
+            return
+        }
+
+        if fullOutput.contains("</think>") {
+            phase = .thinkingComplete
+            visibleOutput = fullOutput
+        } else {
+            phase = .thinkingInProgress
+            visibleOutput = ""
+        }
+    }
+
+    private func makeUpdate(at timestamp: Date, forcePublish: Bool) -> StreamingRenderUpdate {
+        let batchSize = phase == .thinkingInProgress ? reasoningBatchSize : normalBatchSize
+        let intervalReached: Bool
+        if let lastPublishAt {
+            intervalReached = timestamp.timeIntervalSince(lastPublishAt) >= publishInterval
+        } else {
+            intervalReached = true
+        }
+        let shouldPublish = forcePublish || tokensSincePublish >= batchSize || intervalReached
+        if shouldPublish {
+            lastPublishAt = timestamp
+            tokensSincePublish = 0
+        }
+        return StreamingRenderUpdate(
+            fullOutput: fullOutput,
+            visibleOutput: visibleOutput,
+            phase: phase,
+            tokenCount: tokenCount,
+            shouldPublish: shouldPublish
+        )
     }
 }

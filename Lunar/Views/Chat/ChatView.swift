@@ -265,20 +265,12 @@ struct ChatView: View {
             }
             .sheet(isPresented: $showModelPicker) {
                 NavigationStack {
-                    ModelsSettingsView()
+                    ModelsSettingsView(showsDismissButton: true)
                 }
                 #if os(iOS)
                 .presentationDragIndicator(.visible)
                 .if(appPreferences.userInterfaceIdiom == .phone) { view in
                     view.presentationDetents([.fraction(0.4)])
-                }
-                #elseif os(macOS)
-                .toolbar {
-                    ToolbarItem(placement: .destructiveAction) {
-                        Button("close") {
-                            showModelPicker = false
-                        }
-                    }
                 }
                 #endif
             }
