@@ -45,9 +45,8 @@ final class ChatSessionController {
 
     var chatTitle: String {
         guard let preferences else { return "chat" }
-        if let modelName = currentThread?.modelName ?? preferences.currentModelName, !modelName.isEmpty {
-            let displayName = modelSettings?.displayName(for: modelName) ?? modelName
-            return isModelMismatch ? "\(displayName) ♦" : displayName
+        if let modelName = preferences.currentModelName, !modelName.isEmpty {
+            return modelSettings?.displayName(for: modelName) ?? modelName
         }
         return "chat"
     }

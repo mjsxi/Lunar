@@ -227,16 +227,15 @@ struct ChatView: View {
                     .padding()
             }
             .background {
-                if !isShowingConversation {
-                    GeometryReader { geo in
-                        Image(.moon)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 800)
-                            .opacity(0.5)
-                            .rotationEffect(.degrees(moonRotation))
-                            .position(x: geo.size.width / 2, y: geo.size.height * 0.85 + 100)
-                    }
+                GeometryReader { geo in
+                    Image(.moon)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 800)
+                        .opacity(isShowingConversation ? 0.2 : 0.5)
+                        .animation(.easeInOut(duration: 0.5), value: isShowingConversation)
+                        .rotationEffect(.degrees(moonRotation))
+                        .position(x: geo.size.width / 2, y: geo.size.height * 0.85 + 100)
                 }
             }
             .overlay(alignment: .top) {
@@ -257,7 +256,7 @@ struct ChatView: View {
                 emptyStatePhrase = ChatView.emptyStatePhrases.randomElement() ?? "Say something..."
                 if !isShowingConversation {
                     moonRotation = 0
-                    withAnimation(.linear(duration: 540).repeatForever(autoreverses: false)) {
+                    withAnimation(.linear(duration: 600).repeatForever(autoreverses: false)) {
                         moonRotation = 360
                     }
                 }
@@ -267,7 +266,7 @@ struct ChatView: View {
                     moonRotation = 0
                 } else {
                     emptyStatePhrase = ChatView.emptyStatePhrases.randomElement() ?? "Say something..."
-                    withAnimation(.linear(duration: 540).repeatForever(autoreverses: false)) {
+                    withAnimation(.linear(duration: 600).repeatForever(autoreverses: false)) {
                         moonRotation = 360
                     }
                 }
