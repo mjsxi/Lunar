@@ -14,6 +14,7 @@ final class ChatSessionController {
     @ObservationIgnored private var preferences: AppPreferences?
     @ObservationIgnored private var modelSettings: ModelSettingsStore?
     @ObservationIgnored private var knowledgeBase: KnowledgeBaseIndex?
+    @ObservationIgnored private var usageStats: UsageStatsStore?
     @ObservationIgnored private var llm: LLMEvaluator?
     @ObservationIgnored private var modelContext: ModelContext?
     @ObservationIgnored private var titleTasks: [UUID: Task<Void, Never>] = [:]
@@ -26,12 +27,14 @@ final class ChatSessionController {
         preferences: AppPreferences,
         modelSettings: ModelSettingsStore,
         knowledgeBase: KnowledgeBaseIndex,
+        usageStats: UsageStatsStore,
         llm: LLMEvaluator,
         modelContext: ModelContext
     ) {
         self.preferences = preferences
         self.modelSettings = modelSettings
         self.knowledgeBase = knowledgeBase
+        self.usageStats = usageStats
         self.llm = llm
         self.modelContext = modelContext
     }
@@ -132,6 +135,15 @@ final class ChatSessionController {
             systemPrompt: modelSettings.systemPrompt(for: modelName, default: preferences.systemPrompt),
             knowledgeBase: isRAGActiveForChat ? knowledgeBase : nil
         )
+
+        if shouldRecordUsageStats(for: output, tokenCount: llm.lastTokenCount) {
+            usageStats?.recordGeneration(
+                tokenCount: llm.lastTokenCount,
+                tokensPerSecond: llm.lastTokensPerSecond,
+                generatingTime: llm.thinkingTime,
+                timeToFirstToken: llm.lastTimeToFirstToken
+            )
+        }
 
         persist(
             Message(
@@ -280,5 +292,12 @@ final class ChatSessionController {
             thread.title = cleaned
         }
         save(modelContext, failureMessage: "couldn't save the chat title")
+    }
+
+    private func shouldRecordUsageStats(for output: String, tokenCount: Int) -> Bool {
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        guard !trimmed.hasPrefix("Failed:") else { return false }
+        return tokenCount > 0
     }
 }

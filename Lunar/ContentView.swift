@@ -11,6 +11,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var appPreferences: AppPreferences
     @EnvironmentObject var modelSettings: ModelSettingsStore
+    @EnvironmentObject var usageStats: UsageStatsStore
     @EnvironmentObject var knowledgeBase: KnowledgeBaseIndex
     @Environment(\.modelContext) var modelContext
     @Environment(LLMEvaluator.self) var llm
@@ -40,10 +41,14 @@ struct ContentView: View {
                 preferences: appPreferences,
                 modelSettings: modelSettings,
                 knowledgeBase: knowledgeBase,
+                usageStats: usageStats,
                 llm: llm,
                 modelContext: modelContext
             )
             isPromptFocused = true
+        }
+        .task {
+            bootstrapUsageStatsIfNeeded()
         }
         .task(id: appPreferences.currentModelName) {
             if let modelName = appPreferences.currentModelName {
@@ -90,6 +95,14 @@ struct ContentView: View {
     
     func dismissOnboarding() {
         isPromptFocused = true
+    }
+
+    private func bootstrapUsageStatsIfNeeded() {
+        guard !usageStats.hasBootstrappedFromMessages else { return }
+
+        let descriptor = FetchDescriptor<Message>()
+        guard let messages = try? modelContext.fetch(descriptor) else { return }
+        usageStats.bootstrapIfNeeded(from: messages)
     }
 }
 

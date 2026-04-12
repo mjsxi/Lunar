@@ -16,6 +16,7 @@ struct LunarApp: App {
     #endif
     @StateObject private var appPreferences: AppPreferences
     @StateObject private var modelSettings: ModelSettingsStore
+    @StateObject private var usageStats: UsageStatsStore
     @StateObject private var knowledgeBase = KnowledgeBaseIndex()
     @State private var llm: LLMEvaluator
 
@@ -23,6 +24,7 @@ struct LunarApp: App {
         let modelSettings = ModelSettingsStore()
         _appPreferences = StateObject(wrappedValue: AppPreferences())
         _modelSettings = StateObject(wrappedValue: modelSettings)
+        _usageStats = StateObject(wrappedValue: UsageStatsStore())
         _llm = State(wrappedValue: LLMEvaluator(modelSettingsStore: modelSettings))
     }
 
@@ -51,6 +53,7 @@ struct LunarApp: App {
                 .modelContainer(sharedModelContainer)
                 .environmentObject(appPreferences)
                 .environmentObject(modelSettings)
+                .environmentObject(usageStats)
                 .environmentObject(knowledgeBase)
                 .environment(llm)
                 .environment(DeviceStat())

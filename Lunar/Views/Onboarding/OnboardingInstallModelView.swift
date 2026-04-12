@@ -39,14 +39,16 @@ struct OnboardingInstallModelView: View {
     var modelsList: some View {
         Form {
             Section {
-                VStack(spacing: 20) {
-                    Image(systemName: "icloud.and.arrow.down")
-                        .font(.system(size: 44))
-                        .foregroundStyle(.secondary)
+                VStack(spacing: 10) {
+                    Image("lil-guy")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 74, height: 74)
 
-                    Text("select from MLX models made for apple silicon that work with your RAM size")
+                    Text("select from MLX models made for apple silicon that fit within your RAM size")
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
+                        .padding(.bottom, 2)
                     HStack(spacing: 4) {
                         Text("RAM Size:")
                             .foregroundStyle(.secondary)
@@ -60,7 +62,7 @@ struct OnboardingInstallModelView: View {
                     }
                     .font(.subheadline)
                 }
-                .padding(.vertical)
+                .padding(.vertical, 6)
                 .padding(.horizontal, 32)
                 .frame(maxWidth: .infinity)
             }

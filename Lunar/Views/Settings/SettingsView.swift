@@ -17,13 +17,13 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    VStack(spacing: 20) {
+                    VStack(spacing: 10) {
                         Image(.moon)
                             .resizable()
                             .aspectRatio(contentMode: .fit)
-                            .frame(width: 64, height: 64)
+                            .frame(width: 84, height: 84)
 
-                        VStack(spacing: 8) {
+                        VStack(spacing: 4) {
                             Text("Lunar")
                                 .font(.title)
                                 .fontWeight(.semibold)
@@ -31,9 +31,10 @@ struct SettingsView: View {
                             Text("a delightful app for running local LLMs with your knowledge")
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.center)
+                                .padding(.bottom, 2)
                         }
                     }
-                    .padding(.vertical)
+                    .padding(.vertical, 6)
                     .padding(.horizontal, 32)
                     .frame(maxWidth: .infinity)
                 }
@@ -41,13 +42,25 @@ struct SettingsView: View {
 
                 Section {
                     NavigationLink(destination: ModelsSettingsView()) {
-                        Label {
-                            Text("models")
-                                .fixedSize()
-                        } icon: {
-                            Image(systemName: "gyroscope")
+                        HStack(spacing: 12) {
+                            Label {
+                                Text("models")
+                                    .fixedSize()
+                            } icon: {
+                                Image(systemName: "gyroscope")
+                            }
+
+                            Spacer(minLength: 12)
+
+                            Text(modelSettings.displayName(for: appPreferences.currentModelName ?? ""))
+                                .font(.body)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
                         }
-                        .badge(modelSettings.displayName(for: appPreferences.currentModelName ?? ""))
+                    }
+
+                    NavigationLink(destination: UniversalPromptSettingsView()) {
+                        Label("universal prompt", systemImage: "list.bullet.rectangle.portrait")
                     }
 
                     NavigationLink(destination: KnowledgeBaseSettingsView()) {
@@ -58,12 +71,12 @@ struct SettingsView: View {
                         Label("appearance", systemImage: "paintbrush")
                     }
 
-                    NavigationLink(destination: UniversalPromptSettingsView()) {
-                        Label("universal prompt", systemImage: "list.bullet.rectangle.portrait")
-                    }
-
                     NavigationLink(destination: ChatsSettingsView(chatSession: chatSession)) {
                         Label("chats", systemImage: "ellipsis.bubble")
+                    }
+
+                    NavigationLink(destination: UsageStatsSettingsView()) {
+                        Label("stats", systemImage: "atom")
                     }
                 }
 
@@ -77,21 +90,26 @@ struct SettingsView: View {
                     }
                     .padding(.vertical)
                 }
-
-                #if os(macOS)
-                Button {
-                    dismiss()
-                } label: {
-                    Text("close")
-                        .themedSettingsButtonContent()
-                }
-                .buttonStyle(.borderless)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
-                #endif
             }
             .formStyle(.grouped)
             .centeredSettingsPageTitle("settings")
+            #if os(macOS)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                VStack(spacing: 0) {
+                    Divider()
+                    Button {
+                        dismiss()
+                    } label: {
+                        Text("close")
+                            .themedSettingsButtonContent()
+                    }
+                    .buttonStyle(.borderless)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(.background)
+                }
+            }
+            #endif
             .toolbar {
                 #if os(iOS)
                 ToolbarItem(placement: .topBarLeading) {
@@ -144,6 +162,7 @@ extension View {
     SettingsView(chatSession: ChatSessionController())
         .environmentObject(AppPreferences())
         .environmentObject(ModelSettingsStore())
+        .environmentObject(UsageStatsStore())
         .environmentObject(KnowledgeBaseIndex())
         .environment(LLMEvaluator())
 }
