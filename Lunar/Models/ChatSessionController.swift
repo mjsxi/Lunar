@@ -9,6 +9,7 @@ final class ChatSessionController {
     var generatingThreadID: UUID?
     var activeErrorMessage: String?
     var showingErrorAlert = false
+    var pendingRAGOverride: Bool?
 
     @ObservationIgnored private var preferences: AppPreferences?
     @ObservationIgnored private var modelSettings: ModelSettingsStore?
@@ -67,12 +68,15 @@ final class ChatSessionController {
         if let thread = currentThread, let override = thread.ragEnabled {
             return override
         }
-        guard let modelName = preferences?.currentModelName else { return false }
-        return modelSettings?.isRAGEnabled(for: modelName) ?? false
+        if let pendingRAGOverride {
+            return pendingRAGOverride
+        }
+        return defaultRAGEnabledForCurrentContext
     }
 
     func selectThread(_ thread: Thread?) {
         currentThread = thread
+        pendingRAGOverride = nil
         if let thread {
             maybeScheduleTitleSummary(for: thread, immediate: true)
         }
@@ -80,16 +84,18 @@ final class ChatSessionController {
 
     func startNewChat() {
         currentThread = nil
+        pendingRAGOverride = nil
     }
 
     func toggleRAGForCurrentChat() {
         if let thread = currentThread {
-            thread.ragEnabled = !isRAGActiveForChat
+            let newValue = !isRAGActiveForChat
+            thread.ragEnabled = newValue == defaultRAGEnabled(for: thread.modelName) ? nil : newValue
             return
         }
 
-        guard let modelName = preferences?.currentModelName else { return }
-        modelSettings?.setRAGEnabled(!isRAGActiveForChat, for: modelName)
+        let newValue = !isRAGActiveForChat
+        pendingRAGOverride = newValue == defaultRAGEnabledForCurrentContext ? nil : newValue
     }
 
     func stopGeneration() {
@@ -155,10 +161,21 @@ final class ChatSessionController {
         }
 
         let newThread = Thread(modelName: modelName)
+        newThread.ragEnabled = pendingRAGOverride
         currentThread = newThread
+        pendingRAGOverride = nil
         modelContext.insert(newThread)
         save(modelContext, failureMessage: "couldn't create the chat")
         return newThread
+    }
+
+    private var defaultRAGEnabledForCurrentContext: Bool {
+        defaultRAGEnabled(for: currentThread?.modelName ?? preferences?.currentModelName)
+    }
+
+    private func defaultRAGEnabled(for modelName: String?) -> Bool {
+        guard let modelName else { return false }
+        return modelSettings?.isRAGEnabled(for: modelName) ?? false
     }
 
     private func persist(_ message: Message, using modelContext: ModelContext) {

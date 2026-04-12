@@ -49,6 +49,14 @@ struct ChatView: View {
         #endif
     }
 
+    private var inactiveComposerActionColor: Color {
+        .gray
+    }
+
+    private var inactiveKnowledgeToggleColor: Color {
+        inactiveComposerActionColor.opacity(0.55)
+    }
+
     private var knowledgeBaseToggle: some View {
         Button {
             chatSession.toggleRAGForCurrentChat()
@@ -56,7 +64,7 @@ struct ChatView: View {
             Image(systemName: chatSession.isRAGActiveForChat ? "text.book.closed.fill" : "text.book.closed")
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .foregroundStyle(chatSession.isRAGActiveForChat ? Color.appAccent : .gray)
+                .foregroundStyle(chatSession.isRAGActiveForChat ? Color.appAccent : inactiveKnowledgeToggleColor)
             #if os(iOS)
             .frame(width: 24, height: 24)
             #else
@@ -131,7 +139,7 @@ struct ChatView: View {
             Image(systemName: "arrow.up.circle.fill")
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .foregroundStyle(.white, isPromptEmpty ? Color.gray : Color.appAccent)
+                .foregroundStyle(.white, isPromptEmpty ? inactiveComposerActionColor : Color.appAccent)
             #if os(iOS)
                 .frame(width: 24, height: 24)
             #else
