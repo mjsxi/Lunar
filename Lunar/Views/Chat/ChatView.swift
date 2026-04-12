@@ -12,6 +12,7 @@ struct ChatView: View {
     @EnvironmentObject private var appPreferences: AppPreferences
     @EnvironmentObject private var modelSettings: ModelSettingsStore
     @EnvironmentObject private var knowledgeBase: KnowledgeBaseIndex
+    @EnvironmentObject private var localhostServer: LocalhostServerController
     @Environment(LLMEvaluator.self) private var llm
 
     @Bindable var chatSession: ChatSessionController
@@ -57,6 +58,10 @@ struct ChatView: View {
         inactiveComposerActionColor.opacity(0.55)
     }
 
+    private var isLocalhostLocked: Bool {
+        localhostServer.isLocked
+    }
+
     private var knowledgeBaseToggle: some View {
         Button {
             chatSession.toggleRAGForCurrentChat()
@@ -78,45 +83,61 @@ struct ChatView: View {
         .padding(.trailing, 4)
         .padding(.bottom, 8)
         #endif
+        .disabled(isLocalhostLocked)
         #if os(macOS)
         .buttonStyle(.plain)
         #endif
     }
 
     private var chatInput: some View {
-        HStack(alignment: .bottom, spacing: 0) {
-            TextField(chatSession.inputPlaceholder, text: $chatSession.prompt, axis: .vertical)
-                .focused($isPromptFocused)
-                .textFieldStyle(.plain)
-                .disabled(chatSession.isModelMismatch)
-            #if os(iOS)
-                .padding(.horizontal, 16)
-            #elseif os(macOS)
-                .padding(.horizontal, 12)
-                .onSubmit {
-                    handleShiftReturn()
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .bottom, spacing: 0) {
+                if isLocalhostLocked {
+                    HStack(spacing: 8) {
+                        Image(systemName: "lock.fill")
+                            .foregroundStyle(.secondary)
+                        Text("Localhost active, turn off to chat")
+                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .frame(minHeight: 32)
+                } else {
+                    TextField(chatSession.inputPlaceholder, text: $chatSession.prompt, axis: .vertical)
+                        .focused($isPromptFocused)
+                        .textFieldStyle(.plain)
+                        .disabled(chatSession.isModelMismatch)
+                    #if os(iOS)
+                        .padding(.horizontal, 16)
+                    #elseif os(macOS)
+                        .padding(.horizontal, 12)
+                        .onSubmit {
+                            handleShiftReturn()
+                        }
+                        .submitLabel(.send)
+                    #endif
+                        .padding(.vertical, 8)
+                    #if os(iOS)
+                        .frame(minHeight: 48)
+                        .onSubmit {
+                            isPromptFocused = true
+                            sendPrompt()
+                        }
+                    #elseif os(macOS)
+                        .frame(minHeight: 32)
+                    #endif
                 }
-                .submitLabel(.send)
-            #endif
-                .padding(.vertical, 8)
-            #if os(iOS)
-                .frame(minHeight: 48)
-                .onSubmit {
-                    isPromptFocused = true
-                    sendPrompt()
+
+                if knowledgeBase.hasIndex {
+                    knowledgeBaseToggle
                 }
-            #elseif os(macOS)
-                .frame(minHeight: 32)
-            #endif
 
-            if knowledgeBase.hasIndex {
-                knowledgeBaseToggle
-            }
-
-            if llm.running {
-                stopButton
-            } else {
-                generateButton
+                if llm.running {
+                    stopButton
+                } else {
+                    generateButton
+                }
             }
         }
         #if os(iOS)
@@ -146,7 +167,7 @@ struct ChatView: View {
                 .frame(width: 16, height: 16)
             #endif
         }
-        .disabled(isPromptEmpty || chatSession.isModelMismatch)
+        .disabled(isPromptEmpty || chatSession.isModelMismatch || isLocalhostLocked)
         #if os(iOS)
         .padding(.trailing, 12)
         .padding(.bottom, 12)

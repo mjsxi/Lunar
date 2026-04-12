@@ -11,6 +11,7 @@ import MLXLMCommon
 struct ModelsSettingsView: View {
     @EnvironmentObject private var appPreferences: AppPreferences
     @EnvironmentObject private var modelSettings: ModelSettingsStore
+    @EnvironmentObject private var localhostServer: LocalhostServerController
     @Environment(\.dismiss) private var dismiss
     @Environment(LLMEvaluator.self) var llm
     var showsDismissButton = false
@@ -25,6 +26,7 @@ struct ModelsSettingsView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .tint(.primary)
+                .disabled(localhostServer.isLocked)
 
                 NavigationLink {
                     AddModelView()
@@ -33,6 +35,7 @@ struct ModelsSettingsView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .tint(.primary)
+                .disabled(localhostServer.isLocked)
             }
 
             Section(header: Text(appPreferences.installedModels.count == 1 ? "installed model" : "installed models")) {
@@ -40,18 +43,23 @@ struct ModelsSettingsView: View {
                     NavigationLink {
                         ModelDetailView(modelName: modelName)
                     } label: {
+                        let isSelected = appPreferences.currentModelName == modelName
+                        let selectionColor: Color = localhostServer.isLocked ? .secondary : (isSelected ? .appAccent : .primary)
+                        let textColor: Color = localhostServer.isLocked ? .secondary : .primary
                         HStack {
                             Button {
                                 Task { await switchModel(modelName) }
                             } label: {
                                 HStack {
-                                    Image(systemName: appPreferences.currentModelName == modelName ? "checkmark.circle.fill" : "circle")
-                                        .foregroundColor(appPreferences.currentModelName == modelName ? .appAccent : .primary)
+                                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                        .foregroundColor(selectionColor)
                                     Text(modelSettings.displayName(for: modelName))
+                                        .foregroundStyle(textColor)
                                 }
                             }
                             .tint(.primary)
                             .buttonStyle(.borderless)
+                            .disabled(localhostServer.isLocked)
 
                             Spacer()
 
@@ -76,8 +84,16 @@ struct ModelsSettingsView: View {
 
             #if os(macOS)
             Section(header: Text("other")) {
-                NavigationLink("Python backend settings…") {
+                NavigationLink("localhost settings…") {
+                    LocalhostSettingsView()
+                }
+                NavigationLink("python backend settings…") {
                     PythonBackendSettingsView()
+                }
+            }
+            if localhostServer.isLocked {
+                Section {} footer: {
+                    Text("localhost serving is active. model installs, selection changes, and backend changes are locked until you turn localhost off.")
                 }
             }
             #endif

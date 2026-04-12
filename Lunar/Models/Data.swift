@@ -22,6 +22,8 @@ final class AppPreferences: ObservableObject {
     @AppStorage("appColorScheme") var appColorScheme: AppColorScheme = .system
     @AppStorage("autoTitleDelay") var autoTitleDelay: AutoTitleDelay = .thirtySeconds
     @AppStorage("currentModelName") var currentModelName: String?
+    @AppStorage("localhostServerEnabled") var localhostServerEnabled = false
+    @AppStorage("localhostServerPort") var localhostServerPort = 58_627
     @AppStorage("shouldPlayHaptics") var shouldPlayHaptics = true
     @AppStorage("numberOfVisits") var numberOfVisits = 0
     @AppStorage("numberOfVisitsOfLastRequest") var numberOfVisitsOfLastRequest = 0

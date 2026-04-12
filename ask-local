@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BASE_URL="${LUNAR_LOCALHOST_URL:-http://127.0.0.1:58627}"
+MODEL="${LUNAR_LOCALHOST_MODEL:-}"
+STREAM=0
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ask-local [options] "your question"
+
+Options:
+  -s, --stream         Stream tokens as they arrive
+  -m, --model MODEL    Override the localhost model id
+  -u, --url URL        Override the localhost base URL
+  -h, --help           Show this help
+
+Environment:
+  LUNAR_LOCALHOST_URL    Default: http://127.0.0.1:58627
+  LUNAR_LOCALHOST_MODEL  Optional pinned model override
+EOF
+}
+
+require_cmd() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "Missing required command: $1" >&2
+    exit 1
+  fi
+}
+
+parse_args() {
+  local args=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -s|--stream)
+        STREAM=1
+        shift
+        ;;
+      -m|--model)
+        [[ $# -ge 2 ]] || { echo "Missing value for $1" >&2; exit 1; }
+        MODEL="$2"
+        shift 2
+        ;;
+      -u|--url)
+        [[ $# -ge 2 ]] || { echo "Missing value for $1" >&2; exit 1; }
+        BASE_URL="$2"
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      --)
+        shift
+        args+=("$@")
+        break
+        ;;
+      -*)
+        echo "Unknown option: $1" >&2
+        usage >&2
+        exit 1
+        ;;
+      *)
+        args+=("$1")
+        shift
+        ;;
+    esac
+  done
+
+  QUESTION="${args[*]-}"
+  if [[ -z "${QUESTION// }" ]]; then
+    echo "Provide a question." >&2
+    usage >&2
+    exit 1
+  fi
+}
+
+discover_model() {
+  if [[ -n "$MODEL" ]]; then
+    return
+  fi
+
+  MODEL="$(curl -fsS "$BASE_URL/v1/models" | jq -r '.data[0].id // empty')"
+  if [[ -z "$MODEL" ]]; then
+    echo "Could not discover a localhost model from $BASE_URL/v1/models" >&2
+    exit 1
+  fi
+}
+
+build_payload() {
+  local stream_json=false
+  if [[ "$STREAM" -eq 1 ]]; then
+    stream_json=true
+  fi
+
+  jq -cn \
+    --arg model "$MODEL" \
+    --arg prompt "$QUESTION" \
+    --argjson stream "$stream_json" \
+    '{
+      model: $model,
+      stream: $stream,
+      messages: [
+        {
+          role: "user",
+          content: $prompt
+        }
+      ]
+    }'
+}
+
+run_non_streaming() {
+  build_payload | curl -fsS "$BASE_URL/v1/chat/completions" \
+    -H "Content-Type: application/json" \
+    -d @- \
+    | jq -r '.choices[0].message.content // .error.message // "No response body"'
+}
+
+run_streaming() {
+  build_payload | curl -fsS -N "$BASE_URL/v1/chat/completions" \
+    -H "Content-Type: application/json" \
+    -d @- \
+    | while IFS= read -r line; do
+        [[ "$line" == data:\ * ]] || continue
+        local_json="${line#data: }"
+        [[ "$local_json" == "[DONE]" ]] && break
+        printf '%s' "$local_json" | jq -r '.choices[0].delta.content // empty'
+      done
+  printf '\n'
+}
+
+main() {
+  require_cmd curl
+  require_cmd jq
+  parse_args "$@"
+  discover_model
+
+  if [[ "$STREAM" -eq 1 ]]; then
+    run_streaming
+  else
+    run_non_streaming
+  fi
+}
+
+main "$@"

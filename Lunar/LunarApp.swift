@@ -18,14 +18,24 @@ struct LunarApp: App {
     @StateObject private var modelSettings: ModelSettingsStore
     @StateObject private var usageStats: UsageStatsStore
     @StateObject private var knowledgeBase = KnowledgeBaseIndex()
+    @StateObject private var localhostServer: LocalhostServerController
     @State private var llm: LLMEvaluator
 
     init() {
         let modelSettings = ModelSettingsStore()
-        _appPreferences = StateObject(wrappedValue: AppPreferences())
+        let appPreferences = AppPreferences()
+        let llm = LLMEvaluator(modelSettingsStore: modelSettings)
+        _appPreferences = StateObject(wrappedValue: appPreferences)
         _modelSettings = StateObject(wrappedValue: modelSettings)
         _usageStats = StateObject(wrappedValue: UsageStatsStore())
-        _llm = State(wrappedValue: LLMEvaluator(modelSettingsStore: modelSettings))
+        _localhostServer = StateObject(
+            wrappedValue: LocalhostServerController(
+                appPreferences: appPreferences,
+                modelSettings: modelSettings,
+                llm: llm
+            )
+        )
+        _llm = State(wrappedValue: llm)
     }
 
     var sharedModelContainer: ModelContainer = {
@@ -55,11 +65,15 @@ struct LunarApp: App {
                 .environmentObject(modelSettings)
                 .environmentObject(usageStats)
                 .environmentObject(knowledgeBase)
+                .environmentObject(localhostServer)
                 .environment(llm)
                 .environment(DeviceStat())
                 .preferredColorScheme(appPreferences.appColorScheme.colorScheme)
                 .onAppear {
                     knowledgeBase.resolveBookmark()
+                }
+                .task {
+                    await localhostServer.restoreIfNeeded()
                 }
                 #if os(macOS)
                 .frame(minWidth: 640, maxWidth: .infinity, minHeight: 420, maxHeight: .infinity)

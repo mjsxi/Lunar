@@ -28,6 +28,7 @@ struct MessageView: View {
     @State private var collapsed = true
     let message: Message
     var streamingPhase: StreamedAssistantPhase? = nil
+    var streamedDisplay: StreamedAssistantDisplay? = nil
 
     /// Pick black or white based on the resolved accent color's relative
     /// luminance, so the user-bubble text always has solid contrast against
@@ -43,7 +44,7 @@ struct MessageView: View {
     }
 
     var isThinking: Bool {
-        if let streamingPhase {
+        if let streamingPhase = streamingPhase {
             return streamingPhase == .thinkingInProgress
         }
         return !message.content.contains("</think>")
@@ -115,12 +116,30 @@ struct MessageView: View {
                 if streamingPhase == .thinkingInProgress {
                     VStack(alignment: .leading, spacing: 16) {
                         thinkingLabel
+                        if !collapsed {
+                            if let streamedDisplay = streamedDisplay {
+                                if !streamedDisplay.committedThinkingMarkdown.isEmpty {
+                                    HStack(spacing: 12) {
+                                        Capsule()
+                                            .frame(width: 2)
+                                            .padding(.vertical, 1)
+                                            .foregroundStyle(.fill)
+                                        Markdown(streamedDisplay.committedThinkingMarkdown)
+                                            .textSelection(.enabled)
+                                            .markdownTextStyle {
+                                                ForegroundColor(.secondary)
+                                            }
+                                    }
+                                    .padding(.leading, 5)
+                                }
+                            }
+                        }
                     }
                     .padding(.trailing, 48)
                 } else {
                     let (thinking, afterThink) = processThinkingContent(message.content)
                     VStack(alignment: .leading, spacing: 16) {
-                        if let thinking {
+                        if let thinking = thinking {
                             VStack(alignment: .leading, spacing: 12) {
                                 thinkingLabel
                                 if !collapsed {
@@ -149,7 +168,7 @@ struct MessageView: View {
                             }
                         }
 
-                        if let afterThink {
+                        if let afterThink = afterThink {
                             Markdown(afterThink)
                                 .textSelection(.enabled)
                         }
@@ -245,8 +264,9 @@ struct ConversationView: View {
 
                     if shouldShowStreamingBubble {
                         MessageView(
-                            message: Message(role: .assistant, content: llm.streamedVisibleOutput),
-                            streamingPhase: llm.streamedAssistantPhase
+                            message: Message(role: .assistant, content: llm.streamedAssistantDisplay.fullOutput),
+                            streamingPhase: llm.streamedAssistantPhase,
+                            streamedDisplay: llm.streamedAssistantDisplay
                         )
                             .frame(maxWidth: 550, alignment: .leading)
                             .frame(maxWidth: .infinity, alignment: .leading)

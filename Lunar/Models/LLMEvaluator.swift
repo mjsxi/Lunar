@@ -21,6 +21,33 @@ enum StreamedAssistantPhase: Sendable {
     case thinkingComplete
 }
 
+struct StreamedAssistantDisplay: Sendable {
+    let phase: StreamedAssistantPhase
+    let committedThinkingMarkdown: String
+    let visibleAnswer: String
+    let fullOutput: String
+
+    var hasVisibleContent: Bool {
+        !committedThinkingMarkdown.isEmpty || !visibleAnswer.isEmpty
+    }
+
+    static let empty = StreamedAssistantDisplay(
+        phase: .nonReasoning,
+        committedThinkingMarkdown: "",
+        visibleAnswer: "",
+        fullOutput: ""
+    )
+
+    static func initial(reasoningEnabled: Bool) -> StreamedAssistantDisplay {
+        StreamedAssistantDisplay(
+            phase: reasoningEnabled ? .thinkingInProgress : .nonReasoning,
+            committedThinkingMarkdown: "",
+            visibleAnswer: "",
+            fullOutput: ""
+        )
+    }
+}
+
 @Observable
 @MainActor
 class LLMEvaluator {
@@ -37,6 +64,7 @@ class LLMEvaluator {
     var isThinking: Bool = false
     var streamedVisibleOutput = ""
     var streamedAssistantPhase: StreamedAssistantPhase = .nonReasoning
+    var streamedAssistantDisplay = StreamedAssistantDisplay.empty
 
     var lastTokensPerSecond: Double = 0
     var lastTokenCount: Int = 0
@@ -200,6 +228,7 @@ class LLMEvaluator {
         thinkingTime = nil
         isThinking = false
         streamedAssistantPhase = settings.reasoningEnabled ? .thinkingInProgress : .nonReasoning
+        streamedAssistantDisplay = .initial(reasoningEnabled: settings.reasoningEnabled)
         lastTokensPerSecond = 0
         lastTokenCount = 0
         lastTimeToFirstToken = 0
@@ -282,7 +311,7 @@ class LLMEvaluator {
                 case .chunk(let text):
                     if firstTokenTime == nil { firstTokenTime = Date() }
                     let update = await renderer.append(delta: text, at: Date())
-                    let accumulated = update.fullOutput
+                    let accumulated = update.display.fullOutput
                     if let stop = stopSequences.first(where: { accumulated.contains($0) }) {
                         if let r = accumulated.range(of: stop) {
                             let trimmed = String(accumulated[..<r.lowerBound])
@@ -306,12 +335,9 @@ class LLMEvaluator {
             }
             let finalUpdate = await renderer.finish(at: Date())
             applyStreamingUpdate(finalUpdate)
-            if firstVisibleTime == nil, !finalUpdate.visibleOutput.isEmpty {
+            if firstVisibleTime == nil, finalUpdate.display.hasVisibleContent {
                 firstVisibleTime = Date()
             }
-            output = finalUpdate.fullOutput
-            streamedVisibleOutput = finalUpdate.visibleOutput
-            streamedAssistantPhase = finalUpdate.phase
             lastTokensPerSecond = tps
             lastTokenCount = finalUpdate.tokenCount
             if let start = startTime, let firstToken = firstTokenTime {
@@ -387,6 +413,64 @@ class LLMEvaluator {
             #else
             return nil
             #endif
+        }
+    }
+
+    func localhostGenerate(
+        modelName: String,
+        backend: BackendKind,
+        messages: [ChatTurn],
+        params: GenerateParams
+    ) async throws -> AsyncThrowingStream<String, Error> {
+        #if os(macOS)
+        if backend == .pythonMLX {
+            let pythonBackend = BackendRouter.shared.backend(for: .pythonMLX)
+            return pythonBackend.generate(modelName: modelName, messages: messages, params: params)
+        }
+        #endif
+
+        let modelContainer = try await load(modelName: modelName)
+        let promptHistory = messages.map { ["role": $0.role, "content": $0.content] }
+        let parameters = GenerateParameters(temperature: params.temperature, topP: params.topP)
+
+        return AsyncThrowingStream { continuation in
+            Task { @MainActor in
+                do {
+                    MLXRandom.seed(UInt64(Date.timeIntervalSinceReferenceDate * 1000))
+                    let stream: AsyncStream<Generation> = try await modelContainer.perform { context in
+                        let input = try await context.processor.prepare(input: .init(messages: promptHistory))
+                        return try MLXLMCommon.generate(
+                            input: input, parameters: parameters, context: context
+                        )
+                    }
+
+                    let stopSequences = ["<end_of_turn>", "<|im_end|>", "<|eot_id|>", "<|end|>"]
+                    var accumulated = ""
+                    var tokenCount = 0
+
+                    streamLoop: for await event in stream {
+                        switch event {
+                        case .chunk(let text):
+                            accumulated += text
+                            if let stop = stopSequences.first(where: { accumulated.contains($0) }),
+                               let range = accumulated.range(of: stop) {
+                                accumulated = String(accumulated[..<range.lowerBound])
+                                continuation.yield(accumulated)
+                                break streamLoop
+                            }
+                            continuation.yield(accumulated)
+                            tokenCount += 1
+                            if tokenCount >= params.maxTokens { break }
+                        case .info, .toolCall:
+                            break
+                        }
+                    }
+
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
         }
     }
 
@@ -518,7 +602,7 @@ class LLMEvaluator {
                 if update.shouldPublish {
                     applyStreamingUpdate(update)
                 }
-                if firstVisibleTime == nil, !update.visibleOutput.isEmpty {
+                if firstVisibleTime == nil, update.display.hasVisibleContent {
                     firstVisibleTime = Date()
                 }
             }
@@ -530,7 +614,7 @@ class LLMEvaluator {
         let finalUpdate = await renderer.finish(at: Date())
         applyStreamingUpdate(finalUpdate)
         let elapsed = Date().timeIntervalSince(requestStart)
-        if firstVisibleTime == nil, !finalUpdate.visibleOutput.isEmpty {
+        if firstVisibleTime == nil, finalUpdate.display.hasVisibleContent {
             firstVisibleTime = Date()
         }
         lastTokenCount = finalUpdate.tokenCount
@@ -549,10 +633,11 @@ class LLMEvaluator {
     }
 
     private func applyStreamingUpdate(_ update: StreamingRenderUpdate) {
-        output = update.fullOutput
-        streamedVisibleOutput = update.visibleOutput
-        streamedAssistantPhase = update.phase
-        isThinking = update.phase == .thinkingInProgress
+        output = update.display.fullOutput
+        streamedVisibleOutput = update.display.fullOutput
+        streamedAssistantPhase = update.display.phase
+        streamedAssistantDisplay = update.display
+        isThinking = update.display.phase == .thinkingInProgress
     }
 
     #endif
@@ -579,9 +664,7 @@ class LLMEvaluator {
 }
 
 private struct StreamingRenderUpdate: Sendable {
-    let fullOutput: String
-    let visibleOutput: String
-    let phase: StreamedAssistantPhase
+    let display: StreamedAssistantDisplay
     let tokenCount: Int
     let shouldPublish: Bool
 }
@@ -593,11 +676,12 @@ private actor StreamingResponseRenderer {
     private let publishInterval: TimeInterval
 
     private var fullOutput = ""
-    private var visibleOutput = ""
     private var phase: StreamedAssistantPhase
     private var tokenCount = 0
     private var tokensSincePublish = 0
     private var lastPublishAt: Date?
+    private var lastPublishedCommittedThinking = ""
+    private var lastPublishedVisibleAnswer = ""
     private var didInjectThinkTag = false
 
     init(
@@ -640,13 +724,10 @@ private actor StreamingResponseRenderer {
 
     func finish(at timestamp: Date) -> StreamingRenderUpdate {
         refreshPhase()
-        visibleOutput = fullOutput
-        lastPublishAt = timestamp
-        tokensSincePublish = 0
+        let display = makeDisplay(forceThinkingComplete: true)
+        consumePublish(display, at: timestamp)
         return StreamingRenderUpdate(
-            fullOutput: fullOutput,
-            visibleOutput: visibleOutput,
-            phase: phase == .thinkingInProgress ? .thinkingComplete : phase,
+            display: display,
             tokenCount: tokenCount,
             shouldPublish: true
         )
@@ -663,38 +744,152 @@ private actor StreamingResponseRenderer {
     private func refreshPhase() {
         guard reasoningEnabled else {
             phase = .nonReasoning
-            visibleOutput = fullOutput
             return
         }
 
         if fullOutput.contains("</think>") {
             phase = .thinkingComplete
-            visibleOutput = fullOutput
         } else {
             phase = .thinkingInProgress
-            visibleOutput = ""
         }
     }
 
     private func makeUpdate(at timestamp: Date, forcePublish: Bool) -> StreamingRenderUpdate {
         let batchSize = phase == .thinkingInProgress ? reasoningBatchSize : normalBatchSize
+        let display = makeDisplay(forceThinkingComplete: false)
         let intervalReached: Bool
         if let lastPublishAt {
             intervalReached = timestamp.timeIntervalSince(lastPublishAt) >= publishInterval
         } else {
             intervalReached = true
         }
-        let shouldPublish = forcePublish || tokensSincePublish >= batchSize || intervalReached
+        let shouldPublish: Bool
+        switch display.phase {
+        case .thinkingInProgress:
+            let committedChanged = display.committedThinkingMarkdown != lastPublishedCommittedThinking
+            shouldPublish = forcePublish || committedChanged
+        case .thinkingComplete, .nonReasoning:
+            let answerChanged = display.visibleAnswer != lastPublishedVisibleAnswer
+            shouldPublish = forcePublish || (answerChanged && (tokensSincePublish >= batchSize || intervalReached))
+        }
         if shouldPublish {
-            lastPublishAt = timestamp
-            tokensSincePublish = 0
+            consumePublish(display, at: timestamp)
         }
         return StreamingRenderUpdate(
-            fullOutput: fullOutput,
-            visibleOutput: visibleOutput,
-            phase: phase,
+            display: display,
             tokenCount: tokenCount,
             shouldPublish: shouldPublish
         )
+    }
+
+    private func makeDisplay(forceThinkingComplete: Bool) -> StreamedAssistantDisplay {
+        if !reasoningEnabled {
+            return StreamedAssistantDisplay(
+                phase: .nonReasoning,
+                committedThinkingMarkdown: "",
+                visibleAnswer: fullOutput,
+                fullOutput: fullOutput
+            )
+        }
+
+        let effectivePhase: StreamedAssistantPhase
+        if forceThinkingComplete, phase == .thinkingInProgress {
+            effectivePhase = .thinkingComplete
+        } else {
+            effectivePhase = phase
+        }
+
+        let split = splitReasoningContent(fullOutput)
+        switch effectivePhase {
+        case .nonReasoning:
+            return StreamedAssistantDisplay(
+                phase: .nonReasoning,
+                committedThinkingMarkdown: "",
+                visibleAnswer: fullOutput,
+                fullOutput: fullOutput
+            )
+        case .thinkingInProgress:
+            let progressive = splitCommittedThinking(from: split.thinking)
+            return StreamedAssistantDisplay(
+                phase: .thinkingInProgress,
+                committedThinkingMarkdown: progressive.committed,
+                visibleAnswer: "",
+                fullOutput: fullOutput
+            )
+        case .thinkingComplete:
+            return StreamedAssistantDisplay(
+                phase: .thinkingComplete,
+                committedThinkingMarkdown: split.thinking,
+                visibleAnswer: split.answer,
+                fullOutput: fullOutput
+            )
+        }
+    }
+
+    private func splitReasoningContent(_ content: String) -> (thinking: String, answer: String) {
+        guard let startRange = content.range(of: "<think>") else {
+            if let endRange = content.range(of: "</think>") {
+                return (
+                    String(content[..<endRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines),
+                    String(content[endRange.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            }
+            return ("", content)
+        }
+
+        let reasoningStart = startRange.upperBound
+        guard let endRange = content.range(of: "</think>") else {
+            return (
+                String(content[reasoningStart...]).trimmingCharacters(in: .whitespacesAndNewlines),
+                ""
+            )
+        }
+
+        return (
+            String(content[reasoningStart..<endRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines),
+            String(content[endRange.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
+    private func splitCommittedThinking(from content: String) -> (committed: String, tail: String) {
+        guard !content.isEmpty else { return ("", "") }
+
+        let lines = content.components(separatedBy: "\n")
+        var committedLineCount = 0
+        var insideFence = false
+
+        for (index, line) in lines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            if trimmed.hasPrefix("```") {
+                insideFence.toggle()
+                if !insideFence {
+                    committedLineCount = index + 1
+                }
+                continue
+            }
+
+            if insideFence {
+                continue
+            }
+
+            if trimmed.isEmpty {
+                committedLineCount = index + 1
+            }
+        }
+
+        let committed = lines.prefix(committedLineCount).joined(separator: "\n")
+        let tail = lines.dropFirst(committedLineCount).joined(separator: "\n")
+        return (
+            committed.trimmingCharacters(in: .whitespacesAndNewlines),
+            tail.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
+    private func consumePublish(_ display: StreamedAssistantDisplay, at timestamp: Date) {
+        lastPublishAt = timestamp
+        tokensSincePublish = 0
+        lastPublishedCommittedThinking = display.committedThinkingMarkdown
+        lastPublishedVisibleAnswer = display.visibleAnswer
     }
 }

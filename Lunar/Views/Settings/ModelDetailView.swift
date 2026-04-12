@@ -13,6 +13,7 @@ struct ModelDetailView: View {
     @EnvironmentObject var appPreferences: AppPreferences
     @EnvironmentObject var modelSettings: ModelSettingsStore
     @EnvironmentObject var knowledgeBase: KnowledgeBaseIndex
+    @EnvironmentObject var localhostServer: LocalhostServerController
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     let modelName: String
@@ -157,6 +158,7 @@ struct ModelDetailView: View {
                     }
                 }
                 .pickerStyle(.inline)
+                .disabled(localhostServer.isLocked)
                 Text("MLX Swift runs in-process. MLX LM (Python) launches `mlx_lm.server` as a subprocess and streams over its OpenAI-compatible API. Configure the python path under Models → Python backend settings.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -212,6 +214,7 @@ struct ModelDetailView: View {
             #if os(macOS)
             .buttonStyle(.borderless)
             #endif
+            .disabled(localhostServer.isLocked)
             .listRowBackground(Color.clear)
             .listRowInsets(EdgeInsets())
         }
