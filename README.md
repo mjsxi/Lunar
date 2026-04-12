@@ -4,7 +4,7 @@ A native Apple app for running open-source large language models locally. Built 
 
 ![macOS 26+](https://img.shields.io/badge/macOS-26%2B-blue)
 ![iOS 26+](https://img.shields.io/badge/iOS-26%2B-blue)
-![Swift 5.9](https://img.shields.io/badge/Swift-5.9-orange)
+![Swift 6](https://img.shields.io/badge/Swift-6-blue)
 ![License](https://img.shields.io/badge/license-GPLv3-blue)
 
 <p align="center">
