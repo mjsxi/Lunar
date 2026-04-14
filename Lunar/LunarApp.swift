@@ -43,16 +43,12 @@ struct LunarApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([Thread.self, Message.self])
         do {
-            return try ModelContainer(for: schema)
+            return try makeValidatedModelContainer(schema: schema)
         } catch {
-            // If the store is corrupted or incompatible, delete it and retry
-            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            let storeURL = appSupport.appendingPathComponent("default.store")
-            for suffix in ["", "-wal", "-shm"] {
-                try? FileManager.default.removeItem(at: storeURL.deletingLastPathComponent().appendingPathComponent("default.store" + suffix))
-            }
+            // If the store is corrupted or incompatible, delete it and retry.
+            removePersistentStoreFiles()
             do {
-                return try ModelContainer(for: schema)
+                return try makeValidatedModelContainer(schema: schema)
             } catch {
                 fatalError("Could not create ModelContainer: \(error)")
             }
@@ -95,6 +91,41 @@ struct LunarApp: App {
             }
         }
         #endif
+    }
+}
+
+private func makeValidatedModelContainer(schema: Schema) throws -> ModelContainer {
+    let container = try ModelContainer(for: schema)
+    let context = ModelContext(container)
+
+    // Force a minimal fetch for each model so we fail at launch if the backing
+    // SQLite store is missing the expected tables.
+    var threadDescriptor = FetchDescriptor<Thread>()
+    threadDescriptor.fetchLimit = 1
+    _ = try context.fetch(threadDescriptor)
+
+    var messageDescriptor = FetchDescriptor<Message>()
+    messageDescriptor.fetchLimit = 1
+    _ = try context.fetch(messageDescriptor)
+
+    return container
+}
+
+private func removePersistentStoreFiles() {
+    guard let appSupport = FileManager.default.urls(
+        for: .applicationSupportDirectory,
+        in: .userDomainMask
+    ).first else {
+        return
+    }
+
+    let storeURL = appSupport.appendingPathComponent("default.store")
+    for suffix in ["", "-wal", "-shm"] {
+        try? FileManager.default.removeItem(
+            at: storeURL
+                .deletingLastPathComponent()
+                .appendingPathComponent("default.store" + suffix)
+        )
     }
 }
 
